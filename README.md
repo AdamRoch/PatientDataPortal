@@ -32,3 +32,12 @@ The Supabase buckets `study-assets` and `reports` are private. The Resend free t
 100 emails/day (3,000/month), shared by Auth confirmations, shares, and reminders. Supabase's
 free tier includes roughly 1 GB storage and 5 GB/month egress; see `INFRA-SETUP.md` for the
 human-owned domain, DNS, SMTP, and dashboard steps.
+
+## Logging conventions
+
+The API writes compact structured JSON logs. Every request has an `X-Request-Id` correlation
+value, generated when absent and returned to the caller. Log fields may contain technical
+identifiers such as request IDs, provider IDs, and error codes; they must never contain PHI:
+names, dates of birth, email addresses, patient references, report text, image metadata, or
+share tokens. Log only a stable error code for rejected domain requests, never user-supplied
+or exception text.

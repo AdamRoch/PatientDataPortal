@@ -1,10 +1,17 @@
 using PatientDataPortal.Api.Configuration;
 using PatientDataPortal.Api.Health;
+using PatientDataPortal.Api.Observability;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Configuration.AddEnvironmentVariables();
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(options =>
+{
+    options.IncludeScopes = true;
+    options.TimestampFormat = "O";
+});
 builder.Services.Configure<SupabaseOptions>(options =>
 {
     options.Url = builder.Configuration["SUPABASE_URL"] ?? string.Empty;
@@ -27,6 +34,8 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseMiddleware<RequestIdMiddleware>();
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();

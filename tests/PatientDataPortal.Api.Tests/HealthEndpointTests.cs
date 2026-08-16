@@ -15,6 +15,8 @@ public sealed class HealthEndpointTests(WebApplicationFactory<Program> factory) 
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues("X-Request-Id", out var requestIds));
+        Assert.NotEmpty(requestIds);
         Assert.Contains("\"app\"", body);
         Assert.Contains("\"database\"", body);
         Assert.Contains("\"storage\"", body);
