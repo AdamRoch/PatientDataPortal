@@ -3,15 +3,67 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
 
 jobs:
-  test:
+  api:
+    name: API build, lint, and unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+      - run: dotnet restore PatientDataPortal.slnx
       - run: ./scripts/check-api-clock.sh
-      - run: dotnet test tests/PatientDataPortal.Api.Tests/PatientDataPortal.Api.Tests.csproj
+      - run: dotnet build PatientDataPortal.slnx --no-restore
+      - run: api/scripts/lint.sh
+      - run: dotnet test tests/PatientDataPortal.Api.Tests/PatientDataPortal.Api.Tests.csproj --no-restore
+
+  web:
+    name: Web build, lint, and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web run lint
+      - run: npm --prefix web run typecheck
+      - run: npm --prefix web test
+      - run: npm --prefix web run build
+
+  postgres-integration:
+    name: Migrated Postgres integration coverage
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: patient_data_portal
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d patient_data_portal"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: Host=localhost;Port=5432;Database=patient_data_portal;Username=postgres;Password=postgres
+      MIGRATION_DATABASE_URL: Host=localhost;Port=5432;Database=patient_data_portal;Username=postgres;Password=postgres
+      APP_DB_ROLE: patient_data_portal_ci
+      APP_DB_PASSWORD: patient_data_portal_ci_password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - run: dotnet restore PatientDataPortal.slnx
+      - name: Migrate, seed, and verify database constraints
+        run: dotnet run --project api -- --verify-migrations
+      - name: Run API tests against the real Postgres service
+        run: dotnet test tests/PatientDataPortal.Api.Tests/PatientDataPortal.Api.Tests.csproj --no-restore

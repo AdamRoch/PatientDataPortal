@@ -52,6 +52,12 @@ negative constraint and least-privilege checks through that role. For Supabase p
 the runner derives the pooler-decorated login from the URI parser; no credential is printed.
 Do not use the migration credential at runtime.
 
+CI runs this same migrated Postgres verification against a disposable `postgres:16-alpine`
+service, then runs the API test project with that database URL. Its verifier seeds a
+representative appointment, reminder, and share-link fixture and deliberately attempts
+duplicate and forbidden audit writes, so the job proves both successful database access and
+expected constraint or privilege failures without Supabase or Resend credentials.
+
 The Supabase buckets `study-assets` and `reports` are private. The Resend free tier permits
 100 emails/day (3,000/month), shared by Auth confirmations, shares, and reminders. Supabase's
 free tier includes roughly 1 GB storage and 5 GB/month egress; see `INFRA-SETUP.md` for the
