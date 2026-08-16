@@ -1,4 +1,5 @@
 using Npgsql;
+using NodaTime;
 using PatientDataPortal.Api.Configuration;
 
 namespace PatientDataPortal.Api.Migrations;
@@ -18,7 +19,7 @@ public static class MigrationVerifier
         var service = Guid.NewGuid();
         var slot = Guid.NewGuid();
         var appointment = Guid.NewGuid();
-        var now = DateTimeOffset.UtcNow;
+        var now = DateTimeOffset.FromUnixTimeMilliseconds(SystemClock.Instance.GetCurrentInstant().ToUnixTimeMilliseconds());
 
         await ExecuteAsync(connection, transaction, "INSERT INTO user_profiles (user_id, role, display_name, tz) VALUES (@patient, 'patient', 'Migration verifier', 'UTC'), (@provider_user, 'provider', 'Migration verifier', 'UTC')", cancellationToken, ("patient", patient), ("provider_user", providerUser));
         await ExecuteAsync(connection, transaction, "INSERT INTO patient_records (id, patient_ref, dob, full_name) VALUES (@record, 'migration-verifier-ref', DATE '2000-01-01', 'Migration verifier')", cancellationToken, ("record", record));
