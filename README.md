@@ -34,6 +34,22 @@ See [PRD.md](PRD.md) and [ADR/0007-application-stack-and-demo-hosting.md](ADR/00
 
 ## Environment and service budgets
 
+## Hosting plan disclosure
+
+The web app is deployed on Vercel's free tier. Vercel deployments and functions
+can still have cold paths or be subject to free-tier limits, so deployed timing
+evidence is reported separately from local results. The API is deployed on the
+paid Railway Pro plan, which does not sleep and builds .NET natively; it is the
+only paid hosting component in this deployment.
+
+Supabase is on its free tier: it has roughly 1 GB of storage, about 5 GB/month
+of egress, and can pause after roughly seven days without activity. Resend is
+also on its free tier, with the delivery budget documented below. An external
+probe calls the API's public `/health` route every 5–10 minutes for uptime
+history and to exercise the database-backed health path. That probe is evidence
+of observed reachability, not redundancy, failover, or a guarantee against a
+service restart.
+
 Copy `.env.example` to an ignored local environment file and fill every placeholder before
 running an environment that calls Supabase or Resend. `DATABASE_URL` is the session-pooler
 connection for the dedicated application database role; `SUPABASE_SERVICE_KEY` is reserved

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "dotnet publish api/PatientDataPortal.Api.csproj --configuration Release --runtime linux-x64 --self-contained true --output /app/publish"
+  },
+  "deploy": {
+    "startCommand": "/app/publish/PatientDataPortal.Api --urls http://0.0.0.0:${PORT:-8080}",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 100,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
