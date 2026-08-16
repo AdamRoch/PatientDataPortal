@@ -1,0 +1,9 @@
+{
+  "name": "patient-data-portal",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix web run build",
+    "lint": "npm --prefix web run lint && api/scripts/lint.sh",
+    "typecheck": "npm --prefix web run typecheck && api/scripts/typecheck.sh"
+  }
+}

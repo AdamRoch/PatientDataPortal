@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/api/">
+    <Project Path="api/PatientDataPortal.Api.csproj" />
+  </Folder>
+</Solution>
