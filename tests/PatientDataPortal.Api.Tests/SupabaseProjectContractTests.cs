@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PatientDataPortal.Api.Configuration;
@@ -13,6 +12,11 @@ public sealed class SupabaseProjectContractTests
     [Trait("Category", "Integration")]
     public async Task SessionPoolerAndPrivateStorageAreReachable()
     {
+        if (!string.Equals(Environment.GetEnvironmentVariable("RUN_SUPABASE_CONTRACT_TESTS"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         var databaseUrl = RequireEnvironment("DATABASE_URL");
         var supabaseUrl = RequireEnvironment("SUPABASE_URL");
         var serviceKey = RequireEnvironment("SUPABASE_SERVICE_KEY");

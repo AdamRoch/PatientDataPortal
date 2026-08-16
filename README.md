@@ -22,6 +22,14 @@ npm run typecheck
 All API code obtains the current time from NodaTime's injected `IClock`. The clock check is
 also a CI gate; test code uses `NodaTime.Testing.FakeClock` so expiry behavior is deterministic.
 
+The Supabase session-pooler and private-bucket test is deliberately opt-in: CI remains
+hermetic and never receives production credentials. To run the external contract check after
+loading an ignored local credentials file, use:
+
+```sh
+RUN_SUPABASE_CONTRACT_TESTS=true dotnet test tests/PatientDataPortal.Api.Tests/PatientDataPortal.Api.Tests.csproj --filter 'Category=Integration'
+```
+
 See [PRD.md](PRD.md) and [ADR/0007-application-stack-and-demo-hosting.md](ADR/0007-application-stack-and-demo-hosting.md) for the agreed stack and hosting boundaries.
 
 ## Environment and service budgets
