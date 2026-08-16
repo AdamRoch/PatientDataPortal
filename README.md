@@ -19,3 +19,16 @@ npm run typecheck
 ```
 
 See [PRD.md](PRD.md) and [ADR/0007-application-stack-and-demo-hosting.md](ADR/0007-application-stack-and-demo-hosting.md) for the agreed stack and hosting boundaries.
+
+## Environment and service budgets
+
+Copy `.env.example` to an ignored local environment file and fill every placeholder before
+running an environment that calls Supabase or Resend. `DATABASE_URL` is the session-pooler
+connection for the dedicated application database role; `SUPABASE_SERVICE_KEY` is reserved
+for Auth administration and private Storage operations. Never use the service key as an
+application database credential.
+
+The Supabase buckets `study-assets` and `reports` are private. The Resend free tier permits
+100 emails/day (3,000/month), shared by Auth confirmations, shares, and reminders. Supabase's
+free tier includes roughly 1 GB storage and 5 GB/month egress; see `INFRA-SETUP.md` for the
+human-owned domain, DNS, SMTP, and dashboard steps.
