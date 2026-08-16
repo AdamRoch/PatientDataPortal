@@ -42,9 +42,17 @@ builder.Services.Configure<EmailOptions>(options =>
     options.ApiKey = builder.Configuration["RESEND_API_KEY"] ?? string.Empty;
     options.From = builder.Configuration["EMAIL_FROM"] ?? string.Empty;
 });
+builder.Services.Configure<OutboxOptions>(options =>
+{
+    options.JobSecret = builder.Configuration["OUTBOX_JOB_SECRET"] ?? string.Empty;
+    if (int.TryParse(builder.Configuration["OUTBOX_BATCH_SIZE"], out var batchSize)) options.BatchSize = batchSize;
+    if (int.TryParse(builder.Configuration["OUTBOX_MAX_ATTEMPTS"], out var maximumAttempts)) options.MaximumAttempts = maximumAttempts;
+    if (int.TryParse(builder.Configuration["OUTBOX_LEASE_MINUTES"], out var leaseMinutes)) options.LeaseMinutes = leaseMinutes;
+});
 builder.Services.AddHttpClient("resend", client => client.BaseAddress = new Uri("https://api.resend.com/"));
 builder.Services.AddScoped<HealthService>();
 builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
+builder.Services.AddScoped<EmailOutboxWorker>();
 builder.Services.AddSingleton<IClock>(SystemClock.Instance);
 builder.Services.AddScoped<LockoutWindow>();
 
