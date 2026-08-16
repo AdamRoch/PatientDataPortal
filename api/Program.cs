@@ -1,4 +1,5 @@
 using PatientDataPortal.Api.Configuration;
+using PatientDataPortal.Api.Health;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +12,8 @@ builder.Services.Configure<SupabaseOptions>(options =>
 });
 builder.Services.Configure<DatabaseOptions>(options =>
     options.ConnectionString = builder.Configuration["DATABASE_URL"] ?? string.Empty);
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<HealthService>();
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -29,3 +32,5 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+public partial class Program;
