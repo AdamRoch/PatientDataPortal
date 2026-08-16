@@ -40,6 +40,18 @@ connection for the dedicated application database role; `SUPABASE_SERVICE_KEY` i
 for Auth administration and private Storage operations. Never use the service key as an
 application database credential.
 
+Apply the schema with a schema-owner credential, then verify it through the application role:
+
+```sh
+dotnet run --project api -- --verify-migrations
+```
+
+This command uses `MIGRATION_DATABASE_URL` (or bootstrap `DATABASE_URL`) to apply files in
+`infra/migrations/`, creates the deterministic least-privileged `APP_DB_ROLE`, and performs
+negative constraint and least-privilege checks through that role. For Supabase pooler URIs,
+the runner derives the pooler-decorated login from the URI parser; no credential is printed.
+Do not use the migration credential at runtime.
+
 The Supabase buckets `study-assets` and `reports` are private. The Resend free tier permits
 100 emails/day (3,000/month), shared by Auth confirmations, shares, and reminders. Supabase's
 free tier includes roughly 1 GB storage and 5 GB/month egress; see `INFRA-SETUP.md` for the

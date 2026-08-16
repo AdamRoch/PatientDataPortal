@@ -3,7 +3,21 @@ using PatientDataPortal.Api.Email;
 using PatientDataPortal.Api.Health;
 using PatientDataPortal.Api.Observability;
 using PatientDataPortal.Api.Time;
+using PatientDataPortal.Api.Migrations;
 using NodaTime;
+
+if (args.Contains("--migrate", StringComparer.Ordinal))
+{
+    await MigrationRunner.MigrateAsync();
+    return;
+}
+
+if (args.Contains("--verify-migrations", StringComparer.Ordinal))
+{
+    var applicationConnectionString = await MigrationRunner.MigrateAsync();
+    await MigrationVerifier.VerifyAsync(applicationConnectionString);
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
