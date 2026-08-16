@@ -16,7 +16,11 @@ npm --prefix web ci
 npm run build
 npm run lint
 npm run typecheck
+./scripts/check-api-clock.sh
 ```
+
+All API code obtains the current time from NodaTime's injected `IClock`. The clock check is
+also a CI gate; test code uses `NodaTime.Testing.FakeClock` so expiry behavior is deterministic.
 
 See [PRD.md](PRD.md) and [ADR/0007-application-stack-and-demo-hosting.md](ADR/0007-application-stack-and-demo-hosting.md) for the agreed stack and hosting boundaries.
 

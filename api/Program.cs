@@ -1,6 +1,8 @@
 using PatientDataPortal.Api.Configuration;
 using PatientDataPortal.Api.Health;
 using PatientDataPortal.Api.Observability;
+using PatientDataPortal.Api.Time;
+using NodaTime;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +23,8 @@ builder.Services.Configure<DatabaseOptions>(options =>
     options.ConnectionString = builder.Configuration["DATABASE_URL"] ?? string.Empty);
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<HealthService>();
+builder.Services.AddSingleton<IClock>(SystemClock.Instance);
+builder.Services.AddScoped<LockoutWindow>();
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
