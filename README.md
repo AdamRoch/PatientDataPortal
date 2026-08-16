@@ -72,6 +72,20 @@ RESEND_API_KEY=... EMAIL_FROM=portal@example.com RESEND_TEST_RECIPIENT=controlle
   dotnet test tests/PatientDataPortal.Api.Tests/PatientDataPortal.Api.Tests.csproj --filter 'Category=Integration'
 ```
 
+## Email outbox trigger
+
+`POST /api/jobs/email-outbox` delivers due outbox rows. It requires the
+`X-Outbox-Job-Secret` header, whose value is `OUTBOX_JOB_SECRET`. The endpoint uses a short
+database lease and Resend's stable idempotency key, so concurrent or retried ticks do not
+create a second provider command. Each successful send clears the stored payload, including a
+share URL. Retryable failures are rescheduled with exponential backoff; terminal failures stay
+visible as `failed` with `due_at = infinity`.
+
+`.github/workflows/email-outbox.yml` invokes this endpoint every 15 minutes. Configure the
+repository secrets `OUTBOX_JOB_URL` (the deployed API base URL, without a trailing slash) and
+`OUTBOX_JOB_SECRET` (the same server-side value). GitHub Actions scheduling can run late; that
+is safe because the worker always selects every unsent row whose `due_at` is in the past.
+
 ## Logging conventions
 
 The API writes compact structured JSON logs. Every request has an `X-Request-Id` correlation

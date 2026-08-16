@@ -1,0 +1,21 @@
+name: Email outbox tick
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  deliver-due-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the protected outbox worker
+        env:
+          OUTBOX_JOB_URL: ${{ secrets.OUTBOX_JOB_URL }}
+          OUTBOX_JOB_SECRET: ${{ secrets.OUTBOX_JOB_SECRET }}
+        run: |
+          test -n "$OUTBOX_JOB_URL"
+          test -n "$OUTBOX_JOB_SECRET"
+          curl --fail --silent --show-error --retry 2 --retry-all-errors \
+            --header "X-Outbox-Job-Secret: $OUTBOX_JOB_SECRET" \
+            --request POST "$OUTBOX_JOB_URL/api/jobs/email-outbox"
