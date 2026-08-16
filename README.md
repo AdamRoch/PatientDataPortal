@@ -45,6 +45,15 @@ The Supabase buckets `study-assets` and `reports` are private. The Resend free t
 free tier includes roughly 1 GB storage and 5 GB/month egress; see `INFRA-SETUP.md` for the
 human-owned domain, DNS, SMTP, and dashboard steps.
 
+Email delivery defaults to `EMAIL_DELIVERY_MODE=log`, which records only the provider-safe
+result and the idempotency key. The narrow Resend integration test is opt-in and sends one
+generic, non-PHI delivery check only when all three environment values are supplied:
+
+```sh
+RESEND_API_KEY=... EMAIL_FROM=portal@example.com RESEND_TEST_RECIPIENT=controlled-inbox@example.com \
+  dotnet test tests/PatientDataPortal.Api.Tests/PatientDataPortal.Api.Tests.csproj --filter 'Category=Integration'
+```
+
 ## Logging conventions
 
 The API writes compact structured JSON logs. Every request has an `X-Request-Id` correlation
