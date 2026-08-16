@@ -1,4 +1,5 @@
 using PatientDataPortal.Api.Configuration;
+using PatientDataPortal.Api.Email;
 using PatientDataPortal.Api.Health;
 using PatientDataPortal.Api.Observability;
 using PatientDataPortal.Api.Time;
@@ -21,8 +22,15 @@ builder.Services.Configure<SupabaseOptions>(options =>
 });
 builder.Services.Configure<DatabaseOptions>(options =>
     options.ConnectionString = builder.Configuration["DATABASE_URL"] ?? string.Empty);
-builder.Services.AddHttpClient();
+builder.Services.Configure<EmailOptions>(options =>
+{
+    options.DeliveryMode = builder.Configuration["EMAIL_DELIVERY_MODE"] ?? "log";
+    options.ApiKey = builder.Configuration["RESEND_API_KEY"] ?? string.Empty;
+    options.From = builder.Configuration["EMAIL_FROM"] ?? string.Empty;
+});
+builder.Services.AddHttpClient("resend", client => client.BaseAddress = new Uri("https://api.resend.com/"));
 builder.Services.AddScoped<HealthService>();
+builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
 builder.Services.AddSingleton<IClock>(SystemClock.Instance);
 builder.Services.AddScoped<LockoutWindow>();
 
