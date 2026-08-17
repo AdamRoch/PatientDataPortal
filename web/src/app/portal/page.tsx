@@ -6,6 +6,7 @@ import { getSupabaseBrowserClient, hasVerifiedEmail } from "@/lib/auth/client";
 import { PatientProfile } from "@/components/patient-profile";
 import { IdentityVerification } from "@/components/identity-verification";
 import { AppointmentPicker } from "@/components/appointment-picker";
+import { AppointmentsView } from "@/components/appointments-view";
 import { ShareManagement } from "@/components/share-management";
 import styles from "./portal.module.css";
 
@@ -41,7 +42,7 @@ export default function PortalPage() {
 
   if (!ready) return <main aria-busy="true">Checking your secure session…</main>;
 
-  return <main className={styles.page}><h1>Patient portal</h1><p>Your account is signed in.</p><IdentityVerification /><AppointmentPicker /><ShareManagement /><PatientProfile /><SignOutButton /></main>;
+  return <main className={styles.page}><h1>Patient portal</h1><p>Your account is signed in.</p><IdentityVerification /><AppointmentsView /><AppointmentPicker /><ShareManagement /><PatientProfile /><SignOutButton /></main>;
 }
 
 function SignOutButton() {

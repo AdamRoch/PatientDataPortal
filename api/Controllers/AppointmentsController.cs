@@ -9,8 +9,12 @@ namespace PatientDataPortal.Api.Controllers;
 [ApiController]
 [Route("api/appointments")]
 [RequireRole(AppRole.Patient)]
-public sealed class AppointmentsController(IAppointmentBookingService bookings, IAppointmentChangeService changes) : ControllerBase
+public sealed class AppointmentsController(IAppointmentBookingService bookings, IAppointmentChangeService changes, IPatientAppointmentRepository appointments) : ControllerBase
 {
+    [HttpGet]
+    public async Task<ActionResult<PatientAppointments>> List(CancellationToken cancellationToken) =>
+        Ok(await appointments.ListForPatientAsync(Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!), cancellationToken));
+
     [HttpPost]
     public async Task<ActionResult<AppointmentConfirmation>> Create(CreateAppointmentRequest request, CancellationToken cancellationToken)
     {
