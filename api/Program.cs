@@ -101,6 +101,7 @@ builder.Services.AddScoped<IProviderScheduleRepository, ProviderScheduleReposito
 builder.Services.AddScoped<IProviderDiscoveryRepository, ProviderDiscoveryRepository>();
 builder.Services.AddScoped<IAppointmentBookingService, AppointmentBookingService>();
 builder.Services.AddScoped<IAppointmentChangeService, AppointmentChangeService>();
+builder.Services.AddScoped<IAppointmentLifecycleService, AppointmentLifecycleService>();
 builder.Services.AddSingleton<IShareTokenGenerator, ShareTokenGenerator>();
 builder.Services.AddScoped<IShareService, ShareService>();
 builder.Services.AddScoped<IShareManagementService, ShareManagementService>();

@@ -32,6 +32,8 @@ public sealed class AppointmentChangeService(IOptions<DatabaseOptions> databaseO
         var now = clock.GetCurrentInstant().ToDateTimeOffset();
         await ExecuteAsync(connection, transaction, "UPDATE slots SET status = 'open' WHERE id = $1 AND provider_id = $2 AND status = 'booked'", cancellationToken, appointment.SlotId, appointment.ProviderId);
         await ExecuteAsync(connection, transaction, "UPDATE appointments SET status = 'cancelled', updated_at = $1 WHERE id = $2", cancellationToken, now, appointment.Id);
+        await ExecuteAsync(connection, transaction, "INSERT INTO appointment_events (id, appointment_id, from_status, to_status, actor_user_id, actor_role, occurred_at) VALUES ($1, $2, 'confirmed', 'cancelled', $3, 'patient', $4)", cancellationToken, Guid.NewGuid(), appointment.Id, patientUserId, now);
+        await ExecuteAsync(connection, transaction, "INSERT INTO audit_log (id, actor_reference, actor_role, action, target_type, target_reference, result, occurred_at) VALUES ($1, $2, 'patient', 'appointment_cancelled', 'appointment', $3, 'allowed', $4)", cancellationToken, Guid.NewGuid(), patientUserId.ToString(), appointment.Id.ToString(), now);
         await SupersedePendingRemindersAsync(connection, transaction, appointment.Id, appointment.ScheduleVersion, now, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
