@@ -112,3 +112,18 @@ test("reports expose signed-only metadata and a phone-width PDF viewer", async (
   assert.match(styles, /@media \(max-width: 480px\)/);
   assert.doesNotMatch(viewer, /preliminary/);
 });
+
+test("email outbox viewer proxies to the server-enforced admin endpoint without rendering payloads", async () => {
+  const route = await source("app/api/admin/email-outbox/route.ts");
+  const viewer = await source("components/email-outbox-viewer.tsx");
+  const styles = await source("components/email-outbox-viewer.module.css");
+
+  assert.match(route, /auth\.getUser/);
+  assert.match(route, /new URL\("\/api\/admin\/email-outbox", apiUrl\)/);
+  assert.match(route, /cache: "no-store"/);
+  assert.match(viewer, /fetch\("\/api\/admin\/email-outbox"/);
+  assert.match(viewer, /Provider message ID/);
+  assert.match(viewer, /Due/);
+  assert.doesNotMatch(viewer, /payload|href=/i);
+  assert.match(styles, /@media \(max-width: 480px\)/);
+});

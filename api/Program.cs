@@ -108,6 +108,7 @@ builder.Services.AddAuthorization(options => options.AddPolicy(RequireVerifiedPa
 builder.Services.AddScoped<HealthService>();
 builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
 builder.Services.AddScoped<EmailOutboxWorker>();
+builder.Services.AddScoped<IEmailOutboxStatusRepository, EmailOutboxStatusRepository>();
 builder.Services.AddSingleton<IClock>(SystemClock.Instance);
 builder.Services.AddScoped<LockoutWindow>();
 
