@@ -20,7 +20,7 @@ public sealed class ReportsEndpointTests
     public async Task VerifiedPatientListsOnlyOwnSignedReports()
     {
         var ownSigned = new SignedReportListItem(Guid.Parse("f31380f3-d3e6-499c-aed5-c0e997bb2919"), DateTimeOffset.Parse("2026-01-10T12:00:00Z"), "Follow-up ultrasound");
-        await using var factory = new ReportsApplicationFactory(verified: true, [ownSigned], null);
+        await using var factory = new ReportsApplicationFactory(verified: true, [ownSigned], []);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
 
@@ -37,7 +37,7 @@ public sealed class ReportsEndpointTests
     public async Task SignedReportViewIssuesShortLivedUrlAndAuditsTheView()
     {
         var id = Guid.Parse("f31380f3-d3e6-499c-aed5-c0e997bb2919");
-        await using var factory = new ReportsApplicationFactory(verified: true, [], new SignedReportStorageItem(id, "reports/signed.pdf"));
+        await using var factory = new ReportsApplicationFactory(verified: true, [], [new ReportFixture(id, ReportsApplicationFactory.UserId, "reports/signed.pdf", Signed: true)]);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
 
@@ -54,17 +54,63 @@ public sealed class ReportsEndpointTests
     }
 
     [Fact]
-    public async Task PreliminaryOrOtherPatientReportCannotBeViewed()
+    public async Task ForeignPatientReportIsHiddenWithoutIssuingReportBytesAndIsAudited()
     {
-        await using var factory = new ReportsApplicationFactory(verified: true, [], null);
+        var report = new ReportFixture(Guid.NewGuid(), ReportsApplicationFactory.UserId, "reports/signed.pdf", Signed: true);
+        await using var factory = new ReportsApplicationFactory(verified: true, [], [report]);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "foreign");
+
+        var response = await client.GetAsync($"/api/reports/{report.Id}/view");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await AssertNoReportBytes(response, factory);
+        AssertDeniedReportView(factory, report.Id, ReportsApplicationFactory.ForeignUserId);
+    }
+
+    [Fact]
+    public async Task PreliminaryReportIsHiddenWithoutIssuingReportBytesAndIsAudited()
+    {
+        var preliminary = new ReportFixture(Guid.NewGuid(), ReportsApplicationFactory.UserId, "reports/preliminary.pdf", Signed: false);
+        await using var factory = new ReportsApplicationFactory(verified: true, [], [preliminary]);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
 
-        var response = await client.GetAsync($"/api/reports/{Guid.NewGuid()}/view");
+        var response = await client.GetAsync($"/api/reports/{preliminary.Id}/view");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.Null(factory.Storage.LastStoragePath);
-        Assert.Empty(factory.Audit.AllowedEvents);
+        await AssertNoReportBytes(response, factory);
+        AssertDeniedReportView(factory, preliminary.Id, ReportsApplicationFactory.UserId);
+    }
+
+    [Fact]
+    public async Task TamperedJwtCannotProbeReportsAndIsAudited()
+    {
+        var report = new ReportFixture(Guid.NewGuid(), ReportsApplicationFactory.UserId, "reports/signed.pdf", Signed: true);
+        await using var factory = new ReportsApplicationFactory(verified: true, [], [report]);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "tampered");
+
+        var response = await client.GetAsync($"/api/reports/{report.Id}/view");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertNoReportBytes(response, factory);
+        Assert.Contains(factory.Audit.DeniedEvents, audit => audit.Action == "authentication_denied" && audit.Result == "denied");
+    }
+
+    [Fact]
+    public async Task UnverifiedPatientCannotProbeReportsAndIsAudited()
+    {
+        var report = new ReportFixture(Guid.NewGuid(), ReportsApplicationFactory.UserId, "reports/signed.pdf", Signed: true);
+        await using var factory = new ReportsApplicationFactory(verified: false, [], [report]);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
+
+        var response = await client.GetAsync($"/api/reports/{report.Id}/view");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await AssertNoReportBytes(response, factory);
+        Assert.Contains(factory.Audit.DeniedEvents, audit => audit.Action == "verified_patient_required" && audit.Result == "denied");
     }
 
     [Fact]
@@ -85,10 +131,24 @@ public sealed class ReportsEndpointTests
         Assert.Contains("\"expiresIn\":60", handler.Body);
     }
 
-    private sealed class ReportsApplicationFactory(bool verified, IReadOnlyList<SignedReportListItem> list, SignedReportStorageItem? report) : WebApplicationFactory<Program>
+    private static async Task AssertNoReportBytes(HttpResponseMessage response, ReportsApplicationFactory factory)
+    {
+        Assert.Null(factory.Storage.LastStoragePath);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("reports/", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("storage.example.test", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AssertDeniedReportView(ReportsApplicationFactory factory, Guid reportId, Guid actorId) =>
+        Assert.Contains(factory.Audit.DeniedEvents, audit => audit.ActorReference == actorId.ToString() && audit.Action == "report_view" && audit.TargetType == "report" && audit.TargetReference == reportId.ToString() && audit.Result == "denied");
+
+    private sealed record ReportFixture(Guid Id, Guid OwnerId, string StoragePath, bool Signed);
+
+    private sealed class ReportsApplicationFactory(bool verified, IReadOnlyList<SignedReportListItem> list, IReadOnlyList<ReportFixture> reports) : WebApplicationFactory<Program>
     {
         public static readonly Guid UserId = Guid.Parse("7494cb41-69d6-4a86-8cec-a8d82da7b957");
-        public FakeReports Reports { get; } = new(list, report);
+        public static readonly Guid ForeignUserId = Guid.Parse("c997fc3b-77a6-4a2a-841c-d6685d2a5ece");
+        public FakeReports Reports { get; } = new(list, reports);
         public FakeStorage Storage { get; } = new();
         public CapturingAudit Audit { get; } = new();
 
@@ -109,7 +169,15 @@ public sealed class ReportsEndpointTests
         });
     }
 
-    private sealed class FakeJwtVerifier : ISupabaseJwtVerifier { public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token == "valid" ? new AuthenticatedUser(ReportsApplicationFactory.UserId, true) : null); }
+    private sealed class FakeJwtVerifier : ISupabaseJwtVerifier
+    {
+        public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token switch
+        {
+            "valid" => new AuthenticatedUser(ReportsApplicationFactory.UserId, true),
+            "foreign" => new AuthenticatedUser(ReportsApplicationFactory.ForeignUserId, true),
+            _ => null,
+        });
+    }
     private sealed class PatientRole : IUserProfileRoleRepository { public Task<AppRole?> GetRoleAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<AppRole?>(AppRole.Patient); }
     private sealed class FakeIdentityService(bool verified) : IIdentityVerificationService
     {
@@ -117,11 +185,15 @@ public sealed class ReportsEndpointTests
         public Task<bool> IsVerifiedPatientAsync(Guid accountId, CancellationToken cancellationToken) => Task.FromResult(verified);
         public Task RecoverClaimAsync(Guid patientRecordId, Guid adminId, string? reasonCode, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
-    private sealed class FakeReports(IReadOnlyList<SignedReportListItem> list, SignedReportStorageItem? report) : IReportRepository
+    private sealed class FakeReports(IReadOnlyList<SignedReportListItem> list, IReadOnlyList<ReportFixture> reports) : IReportRepository
     {
         public Guid? ListAccountId { get; private set; }
         public Task<IReadOnlyList<SignedReportListItem>> ListSignedForPatientAsync(Guid accountId, CancellationToken cancellationToken) { ListAccountId = accountId; return Task.FromResult(list); }
-        public Task<SignedReportStorageItem?> FindSignedForPatientAsync(Guid reportId, Guid accountId, CancellationToken cancellationToken) => Task.FromResult(report?.Id == reportId ? report : null);
+        public Task<SignedReportStorageItem?> FindSignedForPatientAsync(Guid reportId, Guid accountId, CancellationToken cancellationToken)
+        {
+            var report = reports.SingleOrDefault(report => report.Id == reportId && report.OwnerId == accountId && report.Signed);
+            return Task.FromResult(report is null ? null : new SignedReportStorageItem(report.Id, report.StoragePath));
+        }
     }
     private sealed class FakeStorage : IReportStorage
     {
@@ -131,8 +203,9 @@ public sealed class ReportsEndpointTests
     private sealed class CapturingAudit : IAuditWriter
     {
         public List<AuditEvent> AllowedEvents { get; } = [];
+        public List<AuditEvent> DeniedEvents { get; } = [];
         public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { AllowedEvents.Add(auditEvent); return Task.CompletedTask; }
-        public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { DeniedEvents.Add(auditEvent); return Task.CompletedTask; }
         public Task WriteAllowedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { AllowedEvents.Add(auditEvent); return Task.CompletedTask; }
     }
 

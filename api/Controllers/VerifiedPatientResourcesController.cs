@@ -68,7 +68,11 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
         CancellationToken cancellationToken)
     {
         var report = await reports.FindSignedForPatientAsync(reportId, UserId(), cancellationToken);
-        if (report is null) return NotFound();
+        if (report is null)
+        {
+            await auditWriter.WriteDeniedAsync(new AuditEvent(UserId().ToString(), "patient", "report_view", "report", reportId.ToString(), "denied"), cancellationToken);
+            return NotFound();
+        }
 
         var url = await storage.CreateSignedReadUrlAsync(report.StoragePath, cancellationToken);
         await auditWriter.WriteAllowedAsync(new AuditEvent(UserId().ToString(), "patient", "report_view", "report", report.Id.ToString(), "allowed"), cancellationToken);
