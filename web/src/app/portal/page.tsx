@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient, hasVerifiedEmail } from "@/lib/auth/client";
 import { PatientProfile } from "@/components/patient-profile";
+import { IdentityVerification } from "@/components/identity-verification";
+import styles from "./portal.module.css";
 
 export default function PortalPage() {
   const router = useRouter();
@@ -37,7 +39,7 @@ export default function PortalPage() {
 
   if (!ready) return <main aria-busy="true">Checking your secure session…</main>;
 
-  return <main><h1>Patient portal</h1><p>Your account is signed in. Patient records will appear here after identity verification.</p><PatientProfile /><SignOutButton /></main>;
+  return <main className={styles.page}><h1>Patient portal</h1><p>Your account is signed in.</p><IdentityVerification /><PatientProfile /><SignOutButton /></main>;
 }
 
 function SignOutButton() {

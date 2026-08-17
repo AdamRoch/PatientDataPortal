@@ -1,0 +1,11 @@
+.page {
+  flex: 1;
+  margin: 0 auto;
+  max-width: 48rem;
+  padding: 2rem;
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .page { padding: 1.25rem; }
+}
