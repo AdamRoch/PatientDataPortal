@@ -52,7 +52,7 @@ public sealed class ShareService(
         var now = startedAt;
         var expiresAt = now + Lifetime;
         var shareId = Guid.NewGuid();
-        var link = $"{publicUrl}/share/{token}";
+        var link = $"{publicUrl}/s/{token}";
 
         await using var connection = new NpgsqlConnection(DatabaseConnectionString.Normalize(connectionString));
         await connection.OpenAsync(cancellationToken);
