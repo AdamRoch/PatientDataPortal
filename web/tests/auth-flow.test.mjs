@@ -86,6 +86,25 @@ test("image viewer asks the server to mint a private short-lived URL and support
   assert.match(studies, /\/portal\/imaging\/\$\{imageId\}/);
 });
 
+test("image sharing authenticates the patient before forwarding an image-only share request", async () => {
+  const route = await source("app/api/patient/images/[id]/share/route.ts");
+  const viewer = await source("components/image-viewer.tsx");
+  const styles = await source("components/image-viewer.module.css");
+
+  assert.match(route, /auth\.getUser/);
+  assert.match(route, /new URL\("\/api\/share", apiUrl\)/);
+  assert.match(route, /resourceType: "image"/);
+  assert.match(route, /const \{ id \} = await context\.params/);
+  assert.match(route, /cache: "no-store"/);
+  assert.match(viewer, /Share image/);
+  assert.match(viewer, /\/api\/patient\/images\/\$\{encodeURIComponent\(imageId\)\}\/share/);
+  assert.match(viewer, /Recipient email/);
+  assert.match(viewer, /Secure link sent\. It expires in 48 hours\./);
+  assert.match(viewer, /We could not share this image\. Please try again\./);
+  assert.match(styles, /\.shareForm/);
+  assert.match(styles, /@media \(max-width: 480px\)/);
+});
+
 test("identity verification keeps care navigation behind verified patient state", async () => {
   const identity = await source("components/identity-verification.tsx");
   const route = await source("app/api/patient/identity/route.ts");
