@@ -27,9 +27,9 @@ public sealed class SupabaseJwtVerifier(HttpClient client, IOptions<SupabaseOpti
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var user = await JsonSerializer.DeserializeAsync<SupabaseUser>(stream, cancellationToken: cancellationToken);
         return user is not null && Guid.TryParse(user.Id, out var userId)
-            ? new AuthenticatedUser(userId, user.EmailConfirmedAt is not null)
+            ? new AuthenticatedUser(userId, user.EmailConfirmedAt is not null, user.Email)
             : null;
     }
 
-    private sealed record SupabaseUser(string? Id, DateTimeOffset? EmailConfirmedAt);
+    private sealed record SupabaseUser(string? Id, DateTimeOffset? EmailConfirmedAt, string? Email);
 }

@@ -22,7 +22,11 @@ public sealed class AppointmentsController(IAppointmentBookingService bookings, 
             return BadRequest(new { error = "invalid_appointment_request" });
 
         var stopwatch = Stopwatch.StartNew();
-        var confirmation = await bookings.BookAsync(Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!), request with { IdempotencyKey = request.IdempotencyKey.Trim() }, cancellationToken);
+        var confirmation = await bookings.BookAsync(Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!), request with
+        {
+            IdempotencyKey = request.IdempotencyKey.Trim(),
+            ReminderRecipientEmail = User.FindFirstValue(ClaimTypes.Email)
+        }, cancellationToken);
         Response.Headers["Server-Timing"] = $"booking;dur={Math.Min(stopwatch.Elapsed.TotalMilliseconds, 9999):F1}";
         return Created($"/api/appointments/{confirmation.Id}", confirmation);
     }

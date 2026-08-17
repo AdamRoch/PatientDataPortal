@@ -29,6 +29,7 @@ public sealed class SupabaseAuthenticationHandler(
         identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()));
         identity.AddClaim(new Claim("sub", user.UserId.ToString()));
         identity.AddClaim(new Claim("email_verified", user.IsEmailVerified ? "true" : "false"));
+        if (!string.IsNullOrWhiteSpace(user.Email)) identity.AddClaim(new Claim(ClaimTypes.Email, user.Email));
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName));
     }
 

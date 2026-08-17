@@ -46,7 +46,7 @@ public sealed class AppointmentLifecycleService(IOptions<DatabaseOptions> databa
         if (status == "cancelled")
         {
             await ExecuteAsync(connection, transaction, "UPDATE slots SET status = 'open' WHERE id = $1 AND provider_id = $2 AND status = 'booked'", cancellationToken, appointment.SlotId, appointment.ProviderId);
-            await ExecuteAsync(connection, transaction, "UPDATE email_outbox SET status = 'superseded', updated_at = $1 WHERE appointment_id = $2 AND schedule_version = $3 AND kind = 'reminder' AND status = 'pending'", cancellationToken, now, appointment.Id, appointment.ScheduleVersion);
+            await ExecuteAsync(connection, transaction, "UPDATE email_outbox SET status = 'superseded', updated_at = $1 WHERE appointment_id = $2 AND schedule_version = $3 AND kind = 'reminder' AND status IN ('pending', 'claimed')", cancellationToken, now, appointment.Id, appointment.ScheduleVersion);
         }
         await transaction.CommitAsync(cancellationToken);
         return new(appointment.Id, status);
