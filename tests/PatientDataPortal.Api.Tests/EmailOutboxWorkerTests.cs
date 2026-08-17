@@ -136,6 +136,38 @@ public sealed class EmailOutboxWorkerTests : IAsyncLifetime
         Assert.Equal("superseded", await fixture.StatusAsync("stale-reminder"));
     }
 
+    [Fact]
+    public async Task RescheduleDeliversOnlyTheCurrentScheduleVersion()
+    {
+        await using var fixture = await OutboxFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        await fixture.InsertReminderScenarioAsync("rescheduled", "confirmed", currentScheduleVersion: 2, reminderVersions: [1, 2]);
+        var sender = new RecordingSender();
+
+        var run = await fixture.CreateWorker(sender).ProcessAsync(CancellationToken.None);
+
+        Assert.Equal(1, run.Sent);
+        Assert.Equal(1, run.Superseded);
+        Assert.Equal(new[] { "outbox/rescheduled-v2" }, sender.Keys);
+        Assert.Equal("superseded", await fixture.StatusAsync("rescheduled-v1"));
+        Assert.Equal("sent", await fixture.StatusAsync("rescheduled-v2"));
+    }
+
+    [Fact]
+    public async Task CancelledAppointmentReminderIsSupersededBeforeAnyProviderCall()
+    {
+        await using var fixture = await OutboxFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        await fixture.InsertReminderScenarioAsync("cancelled", "cancelled", currentScheduleVersion: 1, reminderVersions: [1]);
+        var sender = new RecordingSender();
+
+        var run = await fixture.CreateWorker(sender).ProcessAsync(CancellationToken.None);
+
+        Assert.Equal(1, run.Superseded);
+        Assert.Empty(sender.Keys);
+        Assert.Equal("superseded", await fixture.StatusAsync("cancelled-v1"));
+    }
+
     private sealed class OutboxFixture : IAsyncDisposable
     {
         private readonly string _connectionString;
@@ -196,6 +228,20 @@ public sealed class EmailOutboxWorkerTests : IAsyncLifetime
             await ExecuteAsync("INSERT INTO appointments (id, slot_id, patient_user_id, provider_id, service_id, start_at, schedule_version, status, idempotency_key) VALUES (@appointment, @slot, @patient, @provider, @service, @start_at, 2, 'confirmed', @idempotency_key)", ("appointment", appointment), ("slot", slot), ("patient", patient), ("provider", provider), ("service", service), ("start_at", startsAt), ("idempotency_key", $"appointment-{appointment}"));
             var payload = JsonSerializer.Serialize(new { to = "recipient@example.test", subject = "You have a portal notification", html = "<p>You have a portal notification.</p>", text = "You have a portal notification." });
             await ExecuteAsync("INSERT INTO email_outbox (id, appointment_id, schedule_version, interval, kind, payload, due_at, status, idempotency_key) VALUES (@id, @appointment, 1, '24h', 'reminder', CAST(@payload AS jsonb), @due_at, 'pending', @idempotency_key)", ("id", Guid.NewGuid()), ("appointment", appointment), ("payload", payload), ("due_at", Clock.GetCurrentInstant().ToDateTimeOffset()), ("idempotency_key", "outbox/stale-reminder"));
+        }
+
+        public async Task InsertReminderScenarioAsync(string key, string appointmentStatus, int currentScheduleVersion, int[] reminderVersions)
+        {
+            var patient = Guid.NewGuid(); var providerUser = Guid.NewGuid(); var provider = Guid.NewGuid(); var service = Guid.NewGuid(); var slot = Guid.NewGuid(); var appointment = Guid.NewGuid();
+            var startsAt = Clock.GetCurrentInstant().Plus(Duration.FromHours(48)).ToDateTimeOffset();
+            await ExecuteAsync("INSERT INTO user_profiles (user_id, role, display_name, tz) VALUES (@patient, 'patient', 'Patient', 'UTC'), (@provider_user, 'provider', 'Provider', 'UTC')", ("patient", patient), ("provider_user", providerUser));
+            await ExecuteAsync("INSERT INTO providers (id, user_id, tz, slot_length_min) VALUES (@provider, @provider_user, 'UTC', 30)", ("provider", provider), ("provider_user", providerUser));
+            await ExecuteAsync("INSERT INTO services (id, provider_id, name) VALUES (@service, @provider, 'Service')", ("service", service), ("provider", provider));
+            await ExecuteAsync("INSERT INTO slots (id, provider_id, start_at, end_at, status) VALUES (@slot, @provider, @start_at, @end_at, 'booked')", ("slot", slot), ("provider", provider), ("start_at", startsAt), ("end_at", startsAt.AddMinutes(30)));
+            await ExecuteAsync("INSERT INTO appointments (id, slot_id, patient_user_id, provider_id, service_id, start_at, schedule_version, status, idempotency_key) VALUES (@appointment, @slot, @patient, @provider, @service, @start_at, @version, @status, @idempotency_key)", ("appointment", appointment), ("slot", slot), ("patient", patient), ("provider", provider), ("service", service), ("start_at", startsAt), ("version", currentScheduleVersion), ("status", appointmentStatus), ("idempotency_key", $"appointment-{appointment}"));
+            var payload = JsonSerializer.Serialize(new { to = "recipient@example.test", subject = "You have a portal notification", html = "<p>You have a portal notification.</p>", text = "You have a portal notification." });
+            foreach (var version in reminderVersions)
+                await ExecuteAsync("INSERT INTO email_outbox (id, appointment_id, schedule_version, interval, kind, payload, due_at, status, idempotency_key) VALUES (@id, @appointment, @version, '24h', 'reminder', CAST(@payload AS jsonb), @due_at, 'pending', @idempotency_key)", ("id", Guid.NewGuid()), ("appointment", appointment), ("version", version), ("payload", payload), ("due_at", (Clock.GetCurrentInstant() + Duration.FromMinutes(version)).ToDateTimeOffset()), ("idempotency_key", $"outbox/{key}-v{version}"));
         }
 
         public async Task<string> StatusAsync(string key) => await ScalarAsync<string>("SELECT status FROM email_outbox WHERE idempotency_key = @key;", $"outbox/{key}");

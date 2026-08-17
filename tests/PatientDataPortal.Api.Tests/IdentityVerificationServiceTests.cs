@@ -63,6 +63,19 @@ public sealed class IdentityVerificationServiceTests
     }
 
     [Fact]
+    public async Task LockoutExpiresWhenTheInjectedClockPassesTheFifteenMinuteWindow()
+    {
+        await using var fixture = await IdentityFixture.CreateAsync(); if (!fixture.HasDatabase) return;
+        var record = await fixture.AddPatientAsync(); var account = Guid.NewGuid();
+        for (var attempt = 0; attempt < 5; attempt++)
+            Assert.False((await fixture.Service.VerifyAsync(account, true, new(record.Reference, "1999-01-01"), "198.51.100.50", default)).Succeeded);
+
+        fixture.Advance(Duration.FromMinutes(15));
+
+        Assert.True((await fixture.Service.VerifyAsync(account, true, new(record.Reference, "1980-01-02"), "198.51.100.50", default)).Succeeded);
+    }
+
+    [Fact]
     public async Task DistributedReferenceAttackIsSlowedWithoutLockingTheLegitimateAccount()
     {
         await using var fixture = await IdentityFixture.CreateAsync(); if (!fixture.HasDatabase) return;
@@ -73,6 +86,19 @@ public sealed class IdentityVerificationServiceTests
         var legitimate = await fixture.Service.VerifyAsync(Guid.NewGuid(), true, new(record.Reference, "1980-01-02"), "203.0.113.9", default);
         Assert.True(legitimate.Succeeded);
         Assert.True(legitimate.ThrottleDelay > Duration.Zero);
+    }
+
+    [Fact]
+    public async Task ThrottleWindowExpiresWhenTheInjectedClockAdvances()
+    {
+        await using var fixture = await IdentityFixture.CreateAsync(); if (!fixture.HasDatabase) return;
+        var record = await fixture.AddPatientAsync();
+        for (var attacker = 0; attacker < 10; attacker++)
+            await fixture.Service.VerifyAsync(Guid.NewGuid(), true, new(record.Reference, "1999-01-01"), "198.51.100.60", default);
+
+        Assert.True((await fixture.Service.VerifyAsync(Guid.NewGuid(), true, new(record.Reference, "1999-01-01"), "198.51.100.60", default)).ThrottleDelay > Duration.Zero);
+        fixture.Advance(Duration.FromMinutes(15));
+        Assert.Equal(Duration.Zero, (await fixture.Service.VerifyAsync(Guid.NewGuid(), true, new(record.Reference, "1999-01-01"), "198.51.100.60", default)).ThrottleDelay);
     }
 
     [Fact]
@@ -110,6 +136,7 @@ public sealed class IdentityVerificationServiceTests
         private IdentityFixture(string connectionString) => _connectionString = connectionString;
         public static Task<IdentityFixture> CreateAsync() => Task.FromResult(new IdentityFixture(Environment.GetEnvironmentVariable("DATABASE_URL") ?? string.Empty));
         public IdentityVerificationService CreateService() => new(Options.Create(new DatabaseOptions { ConnectionString = _connectionString }), Options.Create(new IdentityVerificationOptions { HmacKey = HmacKey }), _clock);
+        public void Advance(Duration duration) => _clock.Advance(duration);
         public string ReferenceHmac(string reference) => Convert.ToHexString(System.Security.Cryptography.HMACSHA256.HashData(System.Text.Encoding.UTF8.GetBytes(HmacKey), System.Text.Encoding.UTF8.GetBytes(reference)));
         public async Task<(Guid Id, string Reference)> AddPatientAsync()
         {
