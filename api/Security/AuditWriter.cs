@@ -16,21 +16,27 @@ public interface IAuditWriter
 {
     Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken);
     Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken);
+
+    Task WriteAllowedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => WriteAsync(auditEvent, cancellationToken);
 }
 
 public sealed class AuditWriter(IOptions<DatabaseOptions> databaseOptions, ILogger<AuditWriter> logger) : IAuditWriter
 {
-    public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => WriteAsync(auditEvent, auditEvent.Result, cancellationToken);
+    public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => WriteAsync(auditEvent, auditEvent.Result, suppressFailure: true, cancellationToken);
 
     public async Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken)
-        => await WriteAsync(auditEvent, "denied", cancellationToken);
+        => await WriteAsync(auditEvent, "denied", suppressFailure: true, cancellationToken);
 
-    private async Task WriteAsync(AuditEvent auditEvent, string result, CancellationToken cancellationToken)
+    public async Task WriteAllowedAsync(AuditEvent auditEvent, CancellationToken cancellationToken)
+        => await WriteAsync(auditEvent, auditEvent.Result, suppressFailure: false, cancellationToken);
+
+    private async Task WriteAsync(AuditEvent auditEvent, string result, bool suppressFailure, CancellationToken cancellationToken)
     {
         var connectionString = databaseOptions.Value.ConnectionString;
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            logger.LogWarning("Skipped denied-access audit event because the application database is not configured.");
+            logger.LogWarning("Skipped access audit event because the application database is not configured.");
+            if (!suppressFailure) throw new InvalidOperationException("Database access is required to audit this resource view.");
             return;
         }
 
@@ -52,7 +58,8 @@ public sealed class AuditWriter(IOptions<DatabaseOptions> databaseOptions, ILogg
         }
         catch (Exception exception) when (exception is NpgsqlException or ArgumentException)
         {
-            logger.LogError(exception, "Failed to persist denied-access audit event.");
+            logger.LogError(exception, "Failed to persist access audit event.");
+            if (!suppressFailure) throw;
         }
     }
 }
