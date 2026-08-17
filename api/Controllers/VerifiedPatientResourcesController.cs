@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using PatientDataPortal.Api.Security;
 using PatientDataPortal.Api.Studies;
+using PatientDataPortal.Api.Imaging;
 using PatientDataPortal.Api.Reports;
 using PatientDataPortal.Api.Cine;
 using System.Security.Claims;
@@ -19,6 +20,14 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<StudyListItem>>> Studies(
         [FromServices] IStudyRepository studies,
         CancellationToken cancellationToken) => Ok(await studies.ListCompletedForPatientAsync(UserId(), cancellationToken));
+
+    [HttpGet("api/images/{id:guid}")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<ActionResult<ImageAccess>> Image(Guid id, [FromServices] IImageAccessService images, CancellationToken cancellationToken)
+    {
+        var image = await images.MintForPatientAsync(id, UserId(), cancellationToken);
+        return image is null ? NotFound() : Ok(image);
+    }
 
     [HttpGet("api/reports")]
     public async Task<ActionResult<IReadOnlyList<SignedReportListItem>>> Reports(

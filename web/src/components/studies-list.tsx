@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
 
-type Study = { id: string; performedAt: string; description: string };
+type Study = { id: string; performedAt: string; description: string; imageIds?: string[] };
 
 export function StudiesList() {
   const [studies, setStudies] = useState<Study[] | null>(null);
@@ -21,6 +22,9 @@ export function StudiesList() {
     {studies.map((study) => <li key={study.id}>
       <strong>{study.description}</strong><br />
       <time dateTime={study.performedAt}>{new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(new Date(study.performedAt))}</time>
+      {study.imageIds?.length ? <ul aria-label={`Images from ${study.description}`}>
+        {study.imageIds.map((imageId, index) => <li key={imageId}><Link href={`/portal/imaging/${imageId}`}>View image {index + 1}</Link></li>)}
+      </ul> : null}
     </li>)}
   </ul>;
 }
