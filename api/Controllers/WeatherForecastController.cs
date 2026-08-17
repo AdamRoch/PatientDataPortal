@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using NodaTime;
+using PatientDataPortal.Api.Security;
 
 namespace PatientDataPortal.Api.Controllers;
 
 [ApiController]
 [Route("[controller]")]
+[RequireRole(AppRole.Patient)]
 public class WeatherForecastController(IClock clock) : ControllerBase
 {
     private static readonly string[] Summaries =
