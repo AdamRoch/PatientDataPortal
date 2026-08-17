@@ -30,3 +30,14 @@ test("patient session endpoint rejects a request without a bearer token before r
   assert.ok(configRead > authGuard);
   assert.match(route, /status: 401/);
 });
+
+test("profile proxy verifies the patient session and forwards only to the authenticated profile API", async () => {
+  const route = await source("app/api/patient/profile/route.ts");
+  const profile = await source("components/patient-profile.tsx");
+
+  assert.match(route, /auth\.getUser/);
+  assert.match(route, /new URL\("\/api\/profile", apiUrl\)/);
+  assert.match(route, /authorization/);
+  assert.doesNotMatch(route, /\[userId\]/);
+  assert.match(profile, /fetch\("\/api\/patient\/profile"/);
+});
