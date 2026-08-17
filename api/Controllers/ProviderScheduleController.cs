@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using NodaTime;
+using PatientDataPortal.Api.Errors;
 using PatientDataPortal.Api.Scheduling;
 using PatientDataPortal.Api.Security;
 
@@ -22,8 +23,15 @@ public sealed class ProviderScheduleController(IProviderScheduleRepository sched
         if (rules is null || rules.Count > 7 || rules.GroupBy(rule => rule.Weekday).Any(group => group.Count() > 1) || rules.Any(rule => rule.Weekday is < 0 or > 6 || rule.LocalEnd <= rule.LocalStart || (rule.EffectiveUntil is not null && rule.EffectiveFrom is not null && rule.EffectiveUntil < rule.EffectiveFrom)))
             return BadRequest(new { error = "invalid_working_hours" });
         var today = DateOnly.FromDateTime(clock.GetCurrentInstant().InUtc().ToDateTimeUtc());
-        var schedule = await schedules.ReplaceWorkingHoursAsync(UserId(), rules, today, cancellationToken);
-        return schedule is null ? NotFound() : Ok(schedule);
+        try
+        {
+            var schedule = await schedules.ReplaceWorkingHoursAsync(UserId(), rules, today, cancellationToken);
+            return schedule is null ? NotFound() : Ok(schedule);
+        }
+        catch (DomainException exception) when (exception.Code == "availability_conflict")
+        {
+            return Conflict(new { error = exception.Code, message = exception.Message });
+        }
     }
 
     [HttpPut("slot-length")]
@@ -38,16 +46,30 @@ public sealed class ProviderScheduleController(IProviderScheduleRepository sched
     public async Task<ActionResult<BlockedTime>> CreateBlockedTime(BlockedTimeRequest request, CancellationToken cancellationToken)
     {
         if (!ValidFutureRange(request, out var startsAt, out var endsAt)) return BadRequest(new { error = "invalid_blocked_time" });
-        var blocked = await schedules.CreateBlockedTimeAsync(UserId(), startsAt, endsAt, cancellationToken);
-        return blocked is null ? NotFound() : CreatedAtAction(nameof(Get), blocked);
+        try
+        {
+            var blocked = await schedules.CreateBlockedTimeAsync(UserId(), startsAt, endsAt, cancellationToken);
+            return blocked is null ? NotFound() : CreatedAtAction(nameof(Get), blocked);
+        }
+        catch (DomainException exception) when (exception.Code == "availability_conflict")
+        {
+            return Conflict(new { error = exception.Code, message = exception.Message });
+        }
     }
 
     [HttpPut("blocked-times/{id:guid}")]
     public async Task<ActionResult<BlockedTime>> UpdateBlockedTime(Guid id, BlockedTimeRequest request, CancellationToken cancellationToken)
     {
         if (!ValidFutureRange(request, out var startsAt, out var endsAt)) return BadRequest(new { error = "invalid_blocked_time" });
-        var blocked = await schedules.UpdateBlockedTimeAsync(UserId(), id, startsAt, endsAt, cancellationToken);
-        return blocked is null ? NotFound() : Ok(blocked);
+        try
+        {
+            var blocked = await schedules.UpdateBlockedTimeAsync(UserId(), id, startsAt, endsAt, cancellationToken);
+            return blocked is null ? NotFound() : Ok(blocked);
+        }
+        catch (DomainException exception) when (exception.Code == "availability_conflict")
+        {
+            return Conflict(new { error = exception.Code, message = exception.Message });
+        }
     }
 
     [HttpDelete("blocked-times/{id:guid}")]

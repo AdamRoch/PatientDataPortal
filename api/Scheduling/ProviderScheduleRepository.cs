@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using NodaTime;
 using Npgsql;
 using PatientDataPortal.Api.Configuration;
+using PatientDataPortal.Api.Errors;
 
 namespace PatientDataPortal.Api.Scheduling;
 
@@ -126,6 +127,10 @@ public sealed class ProviderScheduleRepository(IOptions<DatabaseOptions> databas
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken)) while (await reader.ReadAsync(cancellationToken))
             existingSlots.Add(new(reader.GetGuid(0), reader.GetGuid(1), Instant.FromDateTimeOffset(reader.GetFieldValue<DateTimeOffset>(2)), reader.GetString(3)));
         var plan = SlotRegenerationPlan.Create(providerId, now, slots, existingSlots);
+        var generatedRanges = slots.Select(slot => (slot.StartsAt, slot.EndsAt)).ToHashSet();
+        var conflictingAppointments = await CountConflictingAppointmentsAsync(connection, transaction, providerId, now, generatedRanges, cancellationToken);
+        if (conflictingAppointments > 0)
+            throw new DomainException("availability_conflict", $"This availability edit conflicts with {conflictingAppointments} non-cancelled appointment{(conflictingAppointments == 1 ? string.Empty : "s")}.", StatusCodes.Status409Conflict);
 
         // The provider lock acquired by MutateAsync is held for this delete-and-insert sequence.
         // Never delete a booked (or otherwise non-open) row: appointments retain their FK target.
@@ -133,6 +138,19 @@ public sealed class ProviderScheduleRepository(IOptions<DatabaseOptions> databas
             await ExecuteAsync(connection, transaction, "DELETE FROM slots WHERE id = $1 AND provider_id = $2 AND status = 'open'", cancellationToken, slotId, providerId);
         foreach (var slot in plan.SlotsToInsert)
             await ExecuteAsync(connection, transaction, "INSERT INTO slots (id, provider_id, start_at, end_at, status) VALUES ($1, $2, $3, $4, 'open') ON CONFLICT (provider_id, start_at) DO NOTHING", cancellationToken, Guid.NewGuid(), providerId, slot.StartsAt.ToDateTimeOffset(), slot.EndsAt.ToDateTimeOffset());
+    }
+
+    private static async Task<int> CountConflictingAppointmentsAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid providerId, Instant now, HashSet<(Instant StartsAt, Instant EndsAt)> generatedRanges, CancellationToken cancellationToken)
+    {
+        var conflicts = 0;
+        await using var command = Command(connection, transaction, "SELECT slots.start_at, slots.end_at FROM appointments JOIN slots ON slots.id = appointments.slot_id WHERE appointments.provider_id = $1 AND appointments.status <> 'cancelled' AND slots.end_at > $2", providerId, now.ToDateTimeOffset());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var range = (Instant.FromDateTimeOffset(reader.GetFieldValue<DateTimeOffset>(0)), Instant.FromDateTimeOffset(reader.GetFieldValue<DateTimeOffset>(1)));
+            if (!generatedRanges.Contains(range)) conflicts++;
+        }
+        return conflicts;
     }
 
     private static async Task<Guid?> ProviderIdAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid userId, CancellationToken cancellationToken)

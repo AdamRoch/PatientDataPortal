@@ -1,12 +1,14 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NodaTime;
 using NodaTime.Testing;
+using PatientDataPortal.Api.Errors;
 using PatientDataPortal.Api.Scheduling;
 using PatientDataPortal.Api.Security;
 using Xunit;
@@ -51,6 +53,21 @@ public sealed class ProviderScheduleEndpointTests
     }
 
     [Fact]
+    public async Task ReturnsConflictCountForAvailabilityCollision()
+    {
+        await using var factory = new ScheduleApplicationFactory(AppRole.Provider);
+        factory.Repository.ExceptionToThrow = new DomainException("availability_conflict", "This availability edit conflicts with 2 non-cancelled appointments.", StatusCodes.Status409Conflict);
+        using var client = AuthorizedClient(factory);
+
+        var response = await client.PutAsJsonAsync("/api/provider/schedule/working-hours", new { rules = Array.Empty<object>() });
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("availability_conflict", body);
+        Assert.Contains("2 non-cancelled appointments", body);
+    }
+
+    [Fact]
     public async Task PatientCannotReadOrMutateProviderSettings()
     {
         await using var factory = new ScheduleApplicationFactory(AppRole.Patient);
@@ -78,9 +95,9 @@ public sealed class ProviderScheduleEndpointTests
     private sealed class FakeRoles(AppRole role) : IUserProfileRoleRepository { public Task<AppRole?> GetRoleAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<AppRole?>(role); }
     private sealed class FakeSchedules : IProviderScheduleRepository
     {
-        private readonly List<WorkingHours> rules = []; private readonly List<BlockedTime> blocks = []; private readonly List<OfferedService> services = []; public List<Guid> MutatingUsers { get; } = []; private int slotLength = 15;
+        private readonly List<WorkingHours> rules = []; private readonly List<BlockedTime> blocks = []; private readonly List<OfferedService> services = []; public List<Guid> MutatingUsers { get; } = []; public DomainException? ExceptionToThrow { get; set; } private int slotLength = 15;
         public Task<ProviderSchedule?> GetAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<ProviderSchedule?>(new(slotLength, rules, blocks, services));
-        public Task<ProviderSchedule?> ReplaceWorkingHoursAsync(Guid userId, IReadOnlyList<WorkingHoursInput> input, DateOnly today, CancellationToken cancellationToken) { MutatingUsers.Add(userId); rules.Clear(); rules.AddRange(input.Select(rule => new WorkingHours(Guid.NewGuid(), rule.Weekday, rule.LocalStart, rule.LocalEnd, rule.EffectiveFrom ?? today, rule.EffectiveUntil))); return GetAsync(userId, cancellationToken); }
+        public Task<ProviderSchedule?> ReplaceWorkingHoursAsync(Guid userId, IReadOnlyList<WorkingHoursInput> input, DateOnly today, CancellationToken cancellationToken) { MutatingUsers.Add(userId); if (ExceptionToThrow is { } exception) throw exception; rules.Clear(); rules.AddRange(input.Select(rule => new WorkingHours(Guid.NewGuid(), rule.Weekday, rule.LocalStart, rule.LocalEnd, rule.EffectiveFrom ?? today, rule.EffectiveUntil))); return GetAsync(userId, cancellationToken); }
         public Task<ProviderSchedule?> UpdateSlotLengthAsync(Guid userId, int value, CancellationToken cancellationToken) { MutatingUsers.Add(userId); slotLength = value; return GetAsync(userId, cancellationToken); }
         public Task<BlockedTime?> CreateBlockedTimeAsync(Guid userId, Instant startsAt, Instant endsAt, CancellationToken cancellationToken) { MutatingUsers.Add(userId); var block = new BlockedTime(Guid.NewGuid(), startsAt, endsAt); blocks.Add(block); return Task.FromResult<BlockedTime?>(block); }
         public Task<BlockedTime?> UpdateBlockedTimeAsync(Guid userId, Guid blockedTimeId, Instant startsAt, Instant endsAt, CancellationToken cancellationToken) => Task.FromResult<BlockedTime?>(null);

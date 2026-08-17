@@ -10,6 +10,7 @@ using NodaTime;
 using NodaTime.Testing;
 using Npgsql;
 using PatientDataPortal.Api.Configuration;
+using PatientDataPortal.Api.Errors;
 using PatientDataPortal.Api.Scheduling;
 using PatientDataPortal.Api.Security;
 using Xunit;
@@ -222,6 +223,57 @@ public sealed class AppointmentBookingTests
     }
 
     [Fact]
+    public async Task RuleEditThatWouldRemoveABookedSlotIsRejectedAndLeavesTheAppointmentUntouched()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var bookedSlot = await fixture.SeedSlotAsync();
+        var appointment = await fixture.Service.BookAsync(fixture.PatientId, new(bookedSlot, fixture.ServiceId, "availability-conflict"), default);
+        var schedules = fixture.ScheduleRepository();
+
+        var exception = await Assert.ThrowsAsync<DomainException>(() => schedules.ReplaceWorkingHoursAsync(fixture.ProviderUserId, [], new DateOnly(2030, 1, 1), default));
+
+        Assert.Equal("availability_conflict", exception.Code);
+        Assert.Equal("This availability edit conflicts with 1 non-cancelled appointment.", exception.Message);
+        Assert.Equal("booked", await fixture.SlotStatusAsync(bookedSlot));
+        Assert.Equal((bookedSlot, 1, "confirmed"), await fixture.AppointmentStateAsync(appointment.Id));
+    }
+
+    [Fact]
+    public async Task NonConflictingRuleEditRemovesOnlyFreeSlots()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var bookedSlot = await fixture.SeedSlotAsync();
+        var appointment = await fixture.Service.BookAsync(fixture.PatientId, new(bookedSlot, fixture.ServiceId, "availability-safe"), default);
+        var freeSlot = await fixture.SeedOpenSlotAsync("2030-01-02T10:00:00Z");
+        var schedules = fixture.ScheduleRepository();
+
+        await schedules.ReplaceWorkingHoursAsync(fixture.ProviderUserId, [new(3, new TimeOnly(9, 0), new TimeOnly(9, 30), null, null)], new DateOnly(2030, 1, 1), default);
+
+        Assert.Equal("booked", await fixture.SlotStatusAsync(bookedSlot));
+        Assert.Equal((bookedSlot, 1, "confirmed"), await fixture.AppointmentStateAsync(appointment.Id));
+        Assert.False(await fixture.SlotExistsAsync(freeSlot));
+    }
+
+    [Fact]
+    public async Task BlockEditThatOverlapsABookedAppointmentIsRejected()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var bookedSlot = await fixture.SeedSlotAsync();
+        var appointment = await fixture.Service.BookAsync(fixture.PatientId, new(bookedSlot, fixture.ServiceId, "block-conflict"), default);
+        var schedules = fixture.ScheduleRepository();
+
+        var exception = await Assert.ThrowsAsync<DomainException>(() => schedules.CreateBlockedTimeAsync(fixture.ProviderUserId, Instant.FromUtc(2030, 1, 2, 9, 15), Instant.FromUtc(2030, 1, 2, 9, 45), default));
+
+        Assert.Equal("availability_conflict", exception.Code);
+        Assert.Equal("booked", await fixture.SlotStatusAsync(bookedSlot));
+        Assert.Equal((bookedSlot, 1, "confirmed"), await fixture.AppointmentStateAsync(appointment.Id));
+        Assert.Equal(0, await fixture.CountAsync("blocked_times"));
+    }
+
+    [Fact]
     public async Task PatientEndpointReturnsConfirmationAndBoundedTiming()
     {
         await using var factory = new AppointmentApplicationFactory();
@@ -316,6 +368,7 @@ public sealed class AppointmentBookingTests
             Lifecycle = new AppointmentLifecycleService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
         }
         public static Task<AppointmentFixture> CreateAsync() => Task.FromResult(new AppointmentFixture(Environment.GetEnvironmentVariable("DATABASE_URL") ?? string.Empty));
+        public ProviderScheduleRepository ScheduleRepository() => new(Options.Create(new DatabaseOptions { ConnectionString = _connectionString }), new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
         public async Task<Guid> SeedSlotAsync()
         {
             var slot = Guid.NewGuid(); var startsAt = DateTimeOffset.Parse("2030-01-02T09:00:00Z");
@@ -340,6 +393,7 @@ public sealed class AppointmentBookingTests
         public Task<int> CountAppointmentAuditsForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM audit_log WHERE target_type = 'appointment' AND target_reference IN (SELECT id::text FROM appointments WHERE slot_id = @slot)", ("slot", slot));
         public Task<int> CountAsync(string table) => ScalarAsync<int>($"SELECT count(*)::int FROM {table}");
         public Task<string> SlotStatusAsync(Guid slot) => ScalarAsync<string>("SELECT status FROM slots WHERE id = @id", ("id", slot));
+        public async Task<bool> SlotExistsAsync(Guid slot) => await ScalarAsync<int>("SELECT count(*)::int FROM slots WHERE id = @id", ("id", slot)) == 1;
         public Task SetSlotStartAsync(Guid slot, string startsAt) => ExecuteAsync("UPDATE slots SET start_at = @start, end_at = @end WHERE id = @id", ("id", slot), ("start", DateTimeOffset.Parse(startsAt)), ("end", DateTimeOffset.Parse(startsAt).AddMinutes(30)));
         public Task SetAppointmentStartAsync(Guid appointmentId, string startsAt) => ExecuteAsync("UPDATE appointments SET start_at = @start WHERE id = @id", ("id", appointmentId), ("start", DateTimeOffset.Parse(startsAt)));
         public async Task<(Guid SlotId, int ScheduleVersion, string Status)> AppointmentStateAsync(Guid appointmentId)
