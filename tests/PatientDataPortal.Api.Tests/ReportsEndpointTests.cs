@@ -131,6 +131,7 @@ public sealed class ReportsEndpointTests
     private sealed class CapturingAudit : IAuditWriter
     {
         public List<AuditEvent> AllowedEvents { get; } = [];
+        public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { AllowedEvents.Add(auditEvent); return Task.CompletedTask; }
         public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task WriteAllowedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { AllowedEvents.Add(auditEvent); return Task.CompletedTask; }
     }

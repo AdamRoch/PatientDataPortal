@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.Mvc;
 using PatientDataPortal.Api.Security;
 using PatientDataPortal.Api.Studies;
 using PatientDataPortal.Api.Reports;
+using PatientDataPortal.Api.Cine;
+using System.Security.Claims;
+using NodaTime;
 
 namespace PatientDataPortal.Api.Controllers;
 
@@ -41,5 +44,59 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
     [HttpGet("api/images")] public IActionResult Images() => NotFound();
     [HttpGet("api/cine")] public IActionResult Cine() => NotFound();
 
-    private Guid UserId() => Guid.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+    [HttpGet("api/cine/{id:guid}")]
+    public async Task<ActionResult<CineManifestResponse>> CineManifest(
+        Guid id,
+        [FromServices] ICineRepository cine,
+        [FromServices] IAuditWriter audit,
+        CancellationToken cancellationToken)
+    {
+        var clip = await cine.GetOwnedAsync(id, UserId(), cancellationToken);
+        if (clip is null)
+        {
+            await WriteDeniedAsync(audit, id, cancellationToken);
+            return NotFound();
+        }
+
+        await WriteGrantedAsync(audit, id, cancellationToken);
+        return Ok(new CineManifestResponse(clip.Id, clip.Manifest));
+    }
+
+    [HttpPost("api/cine/{id:guid}/frame-urls")]
+    public async Task<ActionResult<CineFrameUrlBatchResponse>> FrameUrls(
+        Guid id,
+        CineFrameUrlBatchRequest request,
+        [FromServices] ICineRepository cine,
+        [FromServices] ICineFrameUrlSigner signer,
+        [FromServices] IAuditWriter audit,
+        [FromServices] IClock clock,
+        CancellationToken cancellationToken)
+    {
+        if (request.StartFrame < 0 || request.Count is < 1 or > CineFrameUrlBatchRequest.MaximumCount)
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["batch"] = ["startFrame must be non-negative and count must be between 1 and 50."] }));
+
+        var clip = await cine.GetOwnedAsync(id, UserId(), cancellationToken);
+        if (clip is null)
+        {
+            await WriteDeniedAsync(audit, id, cancellationToken);
+            return NotFound();
+        }
+
+        var paths = clip.FramePaths.Skip(request.StartFrame).Take(request.Count).ToArray();
+        await WriteGrantedAsync(audit, id, cancellationToken);
+        var urls = await signer.MintAsync(paths, request.StartFrame, cancellationToken);
+        if (urls.Count > paths.Length) throw new InvalidOperationException("Storage returned too many cine frame URLs.");
+        return Ok(new CineFrameUrlBatchResponse(urls, clock.GetCurrentInstant().ToDateTimeOffset().AddSeconds(CineFrameUrlSigner.ExpirySeconds)));
+    }
+
+    private Task WriteGrantedAsync(IAuditWriter audit, Guid clipId, CancellationToken cancellationToken) => audit.WriteAsync(new AuditEvent(UserId().ToString(), "patient", "content_access_granted", "cine_clip", clipId.ToString(), "allowed"), cancellationToken);
+    private Task WriteDeniedAsync(IAuditWriter audit, Guid clipId, CancellationToken cancellationToken) => audit.WriteDeniedAsync(new AuditEvent(UserId().ToString(), "patient", "content_access_denied", "cine_clip", clipId.ToString(), "denied"), cancellationToken);
+    private Guid UserId() => Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 }
+
+public sealed record CineManifestResponse(Guid Id, System.Text.Json.JsonElement Manifest);
+public sealed record CineFrameUrlBatchRequest(int StartFrame, int Count)
+{
+    public const int MaximumCount = 50;
+}
+public sealed record CineFrameUrlBatchResponse(IReadOnlyList<SignedFrameUrl> Frames, DateTimeOffset ExpiresAt);
