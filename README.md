@@ -89,6 +89,19 @@ It prints the generated counts and byte total, and refuses a plan at or above th
 budget. Re-running it overwrites the same deterministic object paths and upserts the same IDs;
 it does not create additional seed rows or objects. These fixtures are synthetic only.
 
+After imaging is seeded, create the deliberately pre-confirmed demo logins with a local
+`DEMO_SEED_PASSWORD` (at least 12 characters):
+
+```sh
+dotnet run --project api -- --seed-demo-accounts
+```
+
+This command uses `SUPABASE_SERVICE_KEY` only for the Supabase Auth admin API, then writes
+roles through `DATABASE_URL`. It creates one admin, one provider, a patient claimed to
+`SYN-0001`, and an unlinked patient. It never changes the normal signup email-confirmation
+flow, and it refuses to replace an existing patient claim. The demo credential list belongs
+to the final quick-start documentation.
+
 CI runs this same migrated Postgres verification against a disposable `postgres:16-alpine`
 service, then runs the API test project with that database URL. Its verifier seeds a
 representative appointment, reminder, and share-link fixture and deliberately attempts

@@ -17,4 +17,8 @@
     <Content Include="../infra/migrations/*.sql" Link="Migrations/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="PatientDataPortal.Api.Tests" />
+  </ItemGroup>
+
 </Project>
