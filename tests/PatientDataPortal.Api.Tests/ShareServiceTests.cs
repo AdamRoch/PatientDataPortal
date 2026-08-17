@@ -34,7 +34,13 @@ public sealed class ShareServiceTests
         Assert.DoesNotContain(token, share.TokenHash, StringComparison.Ordinal);
         Assert.Equal(1, await fixture.OutboxCountAsync());
         Assert.Equal(1, await fixture.AuditCountAsync());
-        Assert.Contains(token, await fixture.OutboxPayloadAsync(), StringComparison.Ordinal);
+        var payload = await fixture.OutboxPayloadAsync();
+        Assert.Contains(token, payload, StringComparison.Ordinal);
+        Assert.Contains("A medical image or report has been shared with you", payload, StringComparison.Ordinal);
+        Assert.Contains("expires in 48 hours", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("Test Patient", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("Test study", payload, StringComparison.Ordinal);
+        Assert.Equal($"share/{share.Id}", await fixture.OutboxIdempotencyKeyAsync());
     }
 
     [Fact]
@@ -114,11 +120,12 @@ public sealed class ShareServiceTests
             return id;
         }
 
-        public async Task<(string TokenHash, DateTimeOffset ExpiresAt)> ShareAsync(Guid resourceId) => await OneAsync<(string, DateTimeOffset)>("SELECT token_hash, expires_at FROM share_links WHERE resource_id = @resource", ("resource", resourceId), reader => (reader.GetString(0), reader.GetFieldValue<DateTimeOffset>(1)));
+        public async Task<(Guid Id, string TokenHash, DateTimeOffset ExpiresAt)> ShareAsync(Guid resourceId) => await OneAsync<(Guid, string, DateTimeOffset)>("SELECT id, token_hash, expires_at FROM share_links WHERE resource_id = @resource", ("resource", resourceId), reader => (reader.GetGuid(0), reader.GetString(1), reader.GetFieldValue<DateTimeOffset>(2)));
         public Task<int> ShareCountAsync() => ScalarAsync<int>("SELECT count(*)::int FROM share_links");
         public Task<int> OutboxCountAsync() => ScalarAsync<int>("SELECT count(*)::int FROM email_outbox WHERE kind = 'share'");
         public Task<int> AuditCountAsync() => ScalarAsync<int>("SELECT count(*)::int FROM audit_log WHERE action = 'share_minted'");
         public Task<string> OutboxPayloadAsync() => ScalarAsync<string>("SELECT payload::text FROM email_outbox WHERE kind = 'share' LIMIT 1");
+        public Task<string> OutboxIdempotencyKeyAsync() => ScalarAsync<string>("SELECT idempotency_key FROM email_outbox WHERE kind = 'share' LIMIT 1");
 
         private async Task<Guid> SeedRecordAsync(Guid owner)
         {
