@@ -338,6 +338,7 @@ public sealed class AppointmentBookingTests
         public Task<int> CountAppointmentEventsForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM appointment_events WHERE appointment_id IN (SELECT id FROM appointments WHERE slot_id = @slot)", ("slot", slot));
         public Task<int> CountRemindersForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM email_outbox WHERE appointment_id IN (SELECT id FROM appointments WHERE slot_id = @slot)", ("slot", slot));
         public Task<int> CountAppointmentAuditsForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM audit_log WHERE target_type = 'appointment' AND target_reference IN (SELECT id::text FROM appointments WHERE slot_id = @slot)", ("slot", slot));
+        public Task<int> CountAsync(string table) => ScalarAsync<int>($"SELECT count(*)::int FROM {table}");
         public Task<string> SlotStatusAsync(Guid slot) => ScalarAsync<string>("SELECT status FROM slots WHERE id = @id", ("id", slot));
         public Task SetSlotStartAsync(Guid slot, string startsAt) => ExecuteAsync("UPDATE slots SET start_at = @start, end_at = @end WHERE id = @id", ("id", slot), ("start", DateTimeOffset.Parse(startsAt)), ("end", DateTimeOffset.Parse(startsAt).AddMinutes(30)));
         public Task SetAppointmentStartAsync(Guid appointmentId, string startsAt) => ExecuteAsync("UPDATE appointments SET start_at = @start WHERE id = @id", ("id", appointmentId), ("start", DateTimeOffset.Parse(startsAt)));

@@ -98,6 +98,7 @@ builder.Services.AddScoped<IReportStorage, SupabaseReportStorage>();
 builder.Services.AddScoped<ICineRepository, CineRepository>();
 builder.Services.AddScoped<ICineFrameUrlSigner, CineFrameUrlSigner>();
 builder.Services.AddScoped<IProviderScheduleRepository, ProviderScheduleRepository>();
+builder.Services.AddScoped<IProviderAppointmentsRepository, ProviderAppointmentsRepository>();
 builder.Services.AddScoped<IProviderDiscoveryRepository, ProviderDiscoveryRepository>();
 builder.Services.AddScoped<IAppointmentBookingService, AppointmentBookingService>();
 builder.Services.AddScoped<IAppointmentChangeService, AppointmentChangeService>();
