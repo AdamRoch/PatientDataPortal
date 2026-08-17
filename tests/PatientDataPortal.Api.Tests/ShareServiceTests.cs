@@ -94,17 +94,71 @@ public sealed class ShareServiceTests
         Assert.Equal(1, await fixture.AuditCountAsync());
     }
 
+    [Fact]
+    public async Task ListShowsOnlyThePatientsOwnLinksWithComputedStatus()
+    {
+        await using var fixture = await ShareFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var image = await fixture.SeedImageAsync(fixture.AccountId);
+        var report = await fixture.SeedReportAsync(fixture.AccountId, signed: true);
+        var foreignImage = await fixture.SeedImageAsync(Guid.NewGuid());
+        var active = await fixture.InsertShareAsync(image, "active", "active@example.test", fixture.Clock.GetCurrentInstant().Plus(Duration.FromHours(1)));
+        var expired = await fixture.InsertShareAsync(report, "expired", "expired@example.test", fixture.Clock.GetCurrentInstant().Minus(Duration.FromHours(1)));
+        var revoked = await fixture.InsertShareAsync(image, "revoked", "revoked@example.test", fixture.Clock.GetCurrentInstant().Plus(Duration.FromHours(1)));
+        await fixture.InsertShareAsync(foreignImage, "foreign", "foreign@example.test", fixture.Clock.GetCurrentInstant().Plus(Duration.FromHours(1)));
+        await fixture.Management().RevokeAsync(fixture.AccountId, revoked, default);
+
+        var shares = await fixture.Management().ListAsync(fixture.AccountId, default);
+
+        Assert.Equal(3, shares.Count);
+        Assert.Contains(shares, share => share.Id == active && share.ResourceType == "image" && share.RecipientEmail == "active@example.test" && share.Status == "active");
+        Assert.Contains(shares, share => share.Id == expired && share.ResourceType == "report" && share.RecipientEmail == "expired@example.test" && share.Status == "expired");
+        Assert.Contains(shares, share => share.Id == revoked && share.Status == "revoked" && share.RevokedAt is not null);
+        Assert.DoesNotContain(shares, share => share.RecipientEmail == "foreign@example.test");
+    }
+
+    [Fact]
+    public async Task RevokingAnOwnedLinkMakesThePublicLookupUnavailableAndWritesAudit()
+    {
+        await using var fixture = await ShareFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var image = await fixture.SeedImageAsync(fixture.AccountId);
+        var share = await fixture.InsertShareAsync(image, "live-public-token", "recipient@example.test", fixture.Clock.GetCurrentInstant().Plus(Duration.FromDays(90)));
+        var publicShares = new PublicShareService(Options.Create(new DatabaseOptions { ConnectionString = fixture.ConnectionString }));
+
+        Assert.NotNull(await publicShares.FindActiveAsync("live-public-token", default));
+        Assert.True(await fixture.Management().RevokeAsync(fixture.AccountId, share, default));
+
+        Assert.Null(await publicShares.FindActiveAsync("live-public-token", default));
+        Assert.Equal(1, await fixture.AuditCountAsync("share_revoked"));
+    }
+
+    [Fact]
+    public async Task APatientCannotRevokeAnotherPatientsLink()
+    {
+        await using var fixture = await ShareFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var foreignImage = await fixture.SeedImageAsync(Guid.NewGuid());
+        var foreignShare = await fixture.InsertShareAsync(foreignImage, "foreign-token", "foreign@example.test", fixture.Clock.GetCurrentInstant().Plus(Duration.FromDays(1)));
+
+        Assert.False(await fixture.Management().RevokeAsync(fixture.AccountId, foreignShare, default));
+        Assert.Equal(0, await fixture.AuditCountAsync("share_revoked"));
+        Assert.Null(await fixture.RevokedAtAsync(foreignShare));
+    }
+
     private sealed class ShareFixture : IAsyncDisposable
     {
         private readonly string _connectionString;
         private readonly IShareTokenGenerator _tokens;
         public Guid AccountId { get; } = Guid.NewGuid();
         public bool HasDatabase => !string.IsNullOrWhiteSpace(_connectionString);
+        public string ConnectionString => _connectionString;
         public FakeClock Clock { get; } = new(Instant.FromUtc(2026, 8, 16, 12, 0));
 
         private ShareFixture(string connectionString, IShareTokenGenerator tokens) { _connectionString = connectionString; _tokens = tokens; }
         public static Task<ShareFixture> CreateAsync(IShareTokenGenerator? tokens = null) => Task.FromResult(new ShareFixture(Environment.GetEnvironmentVariable("DATABASE_URL") ?? string.Empty, tokens ?? new ShareTokenGenerator()));
         public ShareService Service() => new(Options.Create(new DatabaseOptions { ConnectionString = _connectionString }), Options.Create(new ShareOptions { PublicUrl = "https://portal.example.test" }), Clock, _tokens, NullLogger<ShareService>.Instance);
+        public ShareManagementService Management() => new(Options.Create(new DatabaseOptions { ConnectionString = _connectionString }), Clock, NullLogger<ShareManagementService>.Instance);
 
         public async Task<Guid> SeedImageAsync(Guid owner)
         {
@@ -124,6 +178,7 @@ public sealed class ShareServiceTests
         public Task<int> ShareCountAsync() => ScalarAsync<int>("SELECT count(*)::int FROM share_links");
         public Task<int> OutboxCountAsync() => ScalarAsync<int>("SELECT count(*)::int FROM email_outbox WHERE kind = 'share'");
         public Task<int> AuditCountAsync() => ScalarAsync<int>("SELECT count(*)::int FROM audit_log WHERE action = 'share_minted'");
+        public Task<int> AuditCountAsync(string action) => ScalarAsync<int>("SELECT count(*)::int FROM audit_log WHERE action = @action", ("action", action));
         public Task<string> OutboxPayloadAsync() => ScalarAsync<string>("SELECT payload::text FROM email_outbox WHERE kind = 'share' LIMIT 1");
         public Task<string> OutboxIdempotencyKeyAsync() => ScalarAsync<string>("SELECT idempotency_key FROM email_outbox WHERE kind = 'share' LIMIT 1");
 
@@ -141,9 +196,22 @@ public sealed class ShareServiceTests
             return id;
         }
 
-        private async Task<T> ScalarAsync<T>(string sql)
+        public async Task<Guid> InsertShareAsync(Guid resourceId, string token, string recipientEmail, Instant expiresAt)
         {
-            await using var connection = new NpgsqlConnection(_connectionString); await connection.OpenAsync(); await using var command = new NpgsqlCommand(sql, connection);
+            var id = Guid.NewGuid();
+            var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+            var resourceType = await ScalarAsync<string>("SELECT CASE WHEN EXISTS (SELECT 1 FROM images WHERE id = @resource) THEN 'image' ELSE 'report' END", ("resource", resourceId));
+            await ExecuteAsync("INSERT INTO share_links (id, token_hash, resource_type, resource_id, recipient_email, expires_at) VALUES (@id, @hash, @type, @resource, @recipient, @expires)", ("id", id), ("hash", tokenHash), ("type", resourceType), ("resource", resourceId), ("recipient", recipientEmail), ("expires", expiresAt.ToDateTimeOffset()));
+            return id;
+        }
+        public async Task<DateTimeOffset?> RevokedAtAsync(Guid shareId)
+        {
+            await using var connection = new NpgsqlConnection(_connectionString); await connection.OpenAsync(); await using var command = new NpgsqlCommand("SELECT revoked_at FROM share_links WHERE id = @id", connection); command.Parameters.AddWithValue("id", shareId);
+            var value = await command.ExecuteScalarAsync(); return value is DBNull ? null : (DateTimeOffset)value!;
+        }
+        private async Task<T> ScalarAsync<T>(string sql, params (string Name, object Value)[] parameters)
+        {
+            await using var connection = new NpgsqlConnection(_connectionString); await connection.OpenAsync(); await using var command = new NpgsqlCommand(sql, connection); foreach (var parameter in parameters) command.Parameters.AddWithValue(parameter.Name, parameter.Value);
             return (T)(await command.ExecuteScalarAsync())!;
         }
         private async Task<T> OneAsync<T>(string sql, (string Name, object Value) parameter, Func<NpgsqlDataReader, T> read)

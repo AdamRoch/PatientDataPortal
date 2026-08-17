@@ -30,6 +30,17 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
         return minted is null ? NotFound() : Ok(minted);
     }
 
+    [HttpGet("api/shares")]
+    public async Task<ActionResult<IReadOnlyList<ManagedShare>>> Shares(
+        [FromServices] IShareManagementService shares,
+        CancellationToken cancellationToken) => Ok(await shares.ListAsync(UserId(), cancellationToken));
+
+    [HttpDelete("api/shares/{shareId:guid}")]
+    public async Task<IActionResult> RevokeShare(
+        Guid shareId,
+        [FromServices] IShareManagementService shares,
+        CancellationToken cancellationToken) => await shares.RevokeAsync(UserId(), shareId, cancellationToken) ? NoContent() : NotFound();
+
     [HttpGet("api/studies")]
     public async Task<ActionResult<IReadOnlyList<StudyListItem>>> Studies(
         [FromServices] IStudyRepository studies,
