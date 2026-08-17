@@ -25,7 +25,7 @@ public sealed class ShareServiceTests
         var minted = await fixture.Service().MintAsync(fixture.AccountId, new ShareRequest("image", image, "recipient@example.test"), default);
 
         Assert.NotNull(minted);
-        Assert.StartsWith("https://portal.example.test/share/", minted!.Link, StringComparison.Ordinal);
+        Assert.StartsWith("https://portal.example.test/s/", minted!.Link, StringComparison.Ordinal);
         Assert.Equal((fixture.Clock.GetCurrentInstant() + Duration.FromHours(48)).ToDateTimeOffset(), minted.ExpiresAt);
         var token = minted.Link.Split('/').Last();
         var share = await fixture.ShareAsync(image);

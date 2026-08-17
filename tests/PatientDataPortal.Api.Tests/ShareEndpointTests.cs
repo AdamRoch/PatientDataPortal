@@ -28,7 +28,7 @@ public sealed class ShareEndpointTests
         Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         Assert.Equal(ShareApplicationFactory.UserId, factory.Shares.AccountId);
         Assert.Equal(new ShareRequest("image", resourceId, "recipient@example.test"), factory.Shares.Request);
-        Assert.Equal("https://portal.example.test/share/test-token", share!.Link);
+        Assert.Equal("https://portal.example.test/s/test-token", share!.Link);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public sealed class ShareEndpointTests
         public Task<MintedShare?> MintAsync(Guid accountId, ShareRequest request, CancellationToken cancellationToken)
         {
             AccountId = accountId; Request = request;
-            return Task.FromResult<MintedShare?>(found ? new MintedShare("https://portal.example.test/share/test-token", Instant.FromUtc(2026, 8, 18, 12, 0).ToDateTimeOffset()) : null);
+            return Task.FromResult<MintedShare?>(found ? new MintedShare("https://portal.example.test/s/test-token", Instant.FromUtc(2026, 8, 18, 12, 0).ToDateTimeOffset()) : null);
         }
     }
 }
