@@ -99,6 +99,7 @@ builder.Services.AddScoped<ICineRepository, CineRepository>();
 builder.Services.AddScoped<ICineFrameUrlSigner, CineFrameUrlSigner>();
 builder.Services.AddScoped<IProviderScheduleRepository, ProviderScheduleRepository>();
 builder.Services.AddScoped<IProviderDiscoveryRepository, ProviderDiscoveryRepository>();
+builder.Services.AddScoped<IAppointmentBookingService, AppointmentBookingService>();
 builder.Services.AddSingleton<IShareTokenGenerator, ShareTokenGenerator>();
 builder.Services.AddScoped<IShareService, ShareService>();
 builder.Services.AddScoped<IShareManagementService, ShareManagementService>();
