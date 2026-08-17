@@ -20,6 +20,10 @@ npm run typecheck
 ./scripts/check-identity-constant-time.sh
 ```
 
+## Cine playback
+
+The cine player defaults to the clip's manifest FPS when it is 10, 12, or 15 FPS; otherwise it defaults to 12 FPS. This keeps default playback within the intended 10–15 FPS range.
+
 All API code obtains the current time from NodaTime's injected `IClock`. The clock check is
 also a CI gate; test code uses `NodaTime.Testing.FakeClock` so expiry behavior is deterministic.
 

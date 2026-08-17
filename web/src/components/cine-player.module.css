@@ -1,0 +1,13 @@
+.player { display: grid; gap: 1rem; max-width: 46rem; }
+.canvas { align-items: center; background: #10252a; border-radius: .5rem; color: #fff; display: flex; justify-content: center; min-height: 14rem; overflow: hidden; }
+.frame { display: block; height: auto; max-height: min(64vh, 36rem); max-width: 100%; object-fit: contain; }
+.controls { align-items: center; display: grid; gap: .65rem; grid-template-columns: repeat(3, auto) minmax(0, 1fr) auto; }
+.controls button, .controls select { background: var(--surface); border: 1px solid #8ca8ae; border-radius: .35rem; color: var(--ink); cursor: pointer; min-height: 2.75rem; padding: .5rem .7rem; }
+.controls button:disabled { cursor: not-allowed; opacity: .55; }
+.controls button:focus-visible, .controls input:focus-visible, .controls select:focus-visible { outline: 3px solid #1e7a91; outline-offset: 2px; }
+.scrubberLabel { display: grid; font-size: .9rem; gap: .2rem; min-width: 0; }
+.scrubberLabel input { margin: 0; min-width: 0; width: 100%; }
+.fpsLabel { display: grid; font-size: .9rem; gap: .2rem; }
+.error { color: #a32424; }
+@media (max-width: 42rem) { .controls { grid-template-columns: repeat(3, 1fr); } .scrubberLabel, .fpsLabel { grid-column: span 3; } .controls button { min-width: 0; } }
+@media (orientation: landscape) and (max-height: 34rem) { .player[data-orientation="landscape"] { gap: .5rem; } .player[data-orientation="landscape"] .canvas { min-height: 9rem; } .player[data-orientation="landscape"] .frame { max-height: 48vh; } }
