@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
 import styles from "./identity-verification.module.css";
@@ -59,8 +60,8 @@ export function IdentityVerification() {
       <h2 id="verification-title">Care information</h2>
       {message && <p role="status">{message.text}</p>}
       <nav aria-label="Care information" className={styles.navigation}>
-        <a href="/portal/imaging">Imaging</a>
-        <a href="/portal/reports">Reports</a>
+        <Link href="/portal/imaging">Imaging</Link>
+        <Link href="/portal/reports">Reports</Link>
       </nav>
     </>}
   </section>;

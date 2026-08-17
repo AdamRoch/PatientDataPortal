@@ -9,6 +9,7 @@ using PatientDataPortal.Api.Security;
 using PatientDataPortal.Api.Identity;
 using PatientDataPortal.Api.Seeding;
 using PatientDataPortal.Api.Studies;
+using PatientDataPortal.Api.Imaging;
 using Microsoft.AspNetCore.Authorization;
 using NodaTime;
 
@@ -80,10 +81,12 @@ builder.Services.Configure<OutboxOptions>(options =>
 });
 builder.Services.AddHttpClient("resend", client => client.BaseAddress = new Uri("https://api.resend.com/"));
 builder.Services.AddHttpClient<ISupabaseJwtVerifier, SupabaseJwtVerifier>();
+builder.Services.AddHttpClient("supabase-storage", client => client.BaseAddress = new Uri((builder.Configuration["SUPABASE_URL"] ?? "http://localhost/").TrimEnd('/') + "/"));
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IUserProfileRoleRepository, UserProfileRoleRepository>();
 builder.Services.AddScoped<IPatientProfileRepository, PatientProfileRepository>();
 builder.Services.AddScoped<IStudyRepository, StudyRepository>();
+builder.Services.AddScoped<IImageAccessService, ImageAccessService>();
 builder.Services.AddScoped<IAuditWriter, AuditWriter>();
 builder.Services.AddScoped<IIdentityVerificationService, IdentityVerificationService>();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, RoleAuthorizationPolicyProvider>();

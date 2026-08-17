@@ -58,6 +58,23 @@ test("studies proxy and list keep study ownership on the server and show a clean
   assert.match(imaging, /<StudiesList \/>/);
 });
 
+test("image viewer asks the server to mint a private short-lived URL and supports accessible reset after expiry", async () => {
+  const route = await source("app/api/patient/images/[id]/route.ts");
+  const viewer = await source("components/image-viewer.tsx");
+  const viewerStyles = await source("components/image-viewer.module.css");
+  const studies = await source("components/studies-list.tsx");
+
+  assert.match(route, /auth\.getUser/);
+  assert.match(route, /new URL\(`\/api\/images\/\$\{encodeURIComponent\(id\)\}`/);
+  assert.match(route, /cache: "no-store"/);
+  assert.match(viewer, /fetch\(`\/api\/patient\/images\/\$\{encodeURIComponent\(imageId\)\}`/);
+  assert.match(viewer, /onPointerDown/);
+  assert.match(viewerStyles, /touch-action: none/);
+  assert.match(viewer, /aria-label="Zoom in"/);
+  assert.match(viewer, /onError=\{remintAfterExpiredUrl\}/);
+  assert.match(studies, /\/portal\/imaging\/\$\{imageId\}/);
+});
+
 test("identity verification keeps care navigation behind verified patient state", async () => {
   const identity = await source("components/identity-verification.tsx");
   const route = await source("app/api/patient/identity/route.ts");
