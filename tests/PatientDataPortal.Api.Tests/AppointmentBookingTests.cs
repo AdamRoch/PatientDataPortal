@@ -142,6 +142,41 @@ public sealed class AppointmentBookingTests
     }
 
     [Fact]
+    public async Task ProviderLifecycleTransitionsWriteEventsAndAuditsAndRejectTerminalTransitions()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var slot = await fixture.SeedSlotAsync();
+        var appointment = await fixture.Service.BookAsync(fixture.PatientId, new(slot, fixture.ServiceId, "lifecycle-complete"), default);
+
+        var completed = await fixture.Lifecycle.TransitionAsync(fixture.ProviderUserId, AppRole.Provider, appointment.Id, "completed", default);
+
+        Assert.Equal("completed", completed.Status);
+        Assert.Equal("completed", (await fixture.AppointmentStateAsync(appointment.Id)).Status);
+        Assert.Equal(3, await fixture.CountAsync("appointment_events"));
+        Assert.Equal(2, await fixture.CountAsync("audit_log"));
+        var invalid = await Assert.ThrowsAsync<PatientDataPortal.Api.Errors.DomainException>(() => fixture.Lifecycle.TransitionAsync(fixture.ProviderUserId, AppRole.Provider, appointment.Id, "cancelled", default));
+        Assert.Equal("invalid_appointment_transition", invalid.Code);
+    }
+
+    [Fact]
+    public async Task NoShowRequiresTheAppointmentToHaveStarted()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var slot = await fixture.SeedSlotAsync();
+        var appointment = await fixture.Service.BookAsync(fixture.PatientId, new(slot, fixture.ServiceId, "lifecycle-no-show"), default);
+
+        var beforeStart = await Assert.ThrowsAsync<PatientDataPortal.Api.Errors.DomainException>(() => fixture.Lifecycle.TransitionAsync(fixture.ProviderUserId, AppRole.Provider, appointment.Id, "no-show", default));
+        Assert.Equal("appointment_not_started", beforeStart.Code);
+        await fixture.SetAppointmentStartAsync(appointment.Id, "2029-12-31T23:59:59Z");
+        var noShow = await fixture.Lifecycle.TransitionAsync(fixture.ProviderUserId, AppRole.Provider, appointment.Id, "no-show", default);
+
+        Assert.Equal("no-show", noShow.Status);
+        Assert.Equal("no-show", (await fixture.AppointmentStateAsync(appointment.Id)).Status);
+    }
+
+    [Fact]
     public async Task PatientEndpointReturnsConfirmationAndBoundedTiming()
     {
         await using var factory = new AppointmentApplicationFactory();
@@ -153,6 +188,20 @@ public sealed class AppointmentBookingTests
         Assert.True(response.Headers.TryGetValues("Server-Timing", out var values));
         Assert.Matches("^booking;dur=[0-9]+\\.[0-9]$", Assert.Single(values));
         Assert.Equal("request-1", factory.Bookings.Request!.IdempotencyKey);
+    }
+
+    [Theory]
+    [InlineData("completed")]
+    [InlineData("no-show")]
+    public async Task PatientCannotCompleteOrMarkNoShow(string status)
+    {
+        await using var factory = new AppointmentApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
+
+        var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Patch, $"/api/appointments/{Guid.NewGuid()}/status") { Content = JsonContent.Create(new { status }) });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     private static async Task<BookingOutcome> Wrap(Task<AppointmentConfirmation> task)
@@ -197,23 +246,26 @@ public sealed class AppointmentBookingTests
     {
         private readonly string _connectionString;
         public Guid PatientId { get; } = Guid.NewGuid();
+        public Guid ProviderUserId { get; } = Guid.NewGuid();
         public Guid ProviderId { get; } = Guid.NewGuid();
         public Guid ServiceId { get; } = Guid.NewGuid();
         public bool HasDatabase => !string.IsNullOrWhiteSpace(_connectionString);
         public AppointmentBookingService Service { get; }
         public AppointmentChangeService Changes { get; }
+        public AppointmentLifecycleService Lifecycle { get; }
         private AppointmentFixture(string connectionString)
         {
             _connectionString = connectionString;
             Service = new AppointmentBookingService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
             Changes = new AppointmentChangeService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
+            Lifecycle = new AppointmentLifecycleService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
         }
         public static Task<AppointmentFixture> CreateAsync() => Task.FromResult(new AppointmentFixture(Environment.GetEnvironmentVariable("DATABASE_URL") ?? string.Empty));
         public async Task<Guid> SeedSlotAsync()
         {
-            var providerUser = Guid.NewGuid(); var slot = Guid.NewGuid(); var startsAt = DateTimeOffset.Parse("2030-01-02T09:00:00Z");
-            await ExecuteAsync("INSERT INTO user_profiles (user_id, role, display_name, tz) VALUES (@id, 'provider', 'Test provider', 'UTC')", ("id", providerUser));
-            await ExecuteAsync("INSERT INTO providers (id, user_id, tz, slot_length_min) VALUES (@id, @user, 'UTC', 30)", ("id", ProviderId), ("user", providerUser));
+            var slot = Guid.NewGuid(); var startsAt = DateTimeOffset.Parse("2030-01-02T09:00:00Z");
+            await ExecuteAsync("INSERT INTO user_profiles (user_id, role, display_name, tz) VALUES (@id, 'provider', 'Test provider', 'UTC')", ("id", ProviderUserId));
+            await ExecuteAsync("INSERT INTO providers (id, user_id, tz, slot_length_min) VALUES (@id, @user, 'UTC', 30)", ("id", ProviderId), ("user", ProviderUserId));
             await ExecuteAsync("INSERT INTO services (id, provider_id, name) VALUES (@id, @provider, 'Test service')", ("id", ServiceId), ("provider", ProviderId));
             await ExecuteAsync("INSERT INTO slots (id, provider_id, start_at, end_at, status) VALUES (@id, @provider, @start, @end, 'open')", ("id", slot), ("provider", ProviderId), ("start", startsAt), ("end", startsAt.AddMinutes(30)));
             return slot;
