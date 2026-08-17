@@ -23,7 +23,11 @@ public sealed class PublicShareController : ControllerBase
         if (share is null) return await UnavailableAsync(failures, audit, cancellationToken);
 
         await using var content = await storage.OpenReadAsync(share, cancellationToken);
-        if (content is null) return NotFound();
+        if (content is null)
+        {
+            await audit.WriteDeniedAsync(new AuditEvent(null, "anonymous", "shared_content_denied", "share_link", share.Id.ToString(), "denied"), cancellationToken);
+            return NotFound();
+        }
         await audit.WriteAllowedAsync(new AuditEvent(null, "anonymous", "shared_content_delivered", "share_link", share.Id.ToString(), "allowed"), cancellationToken);
 
         SetPrivacyHeaders();

@@ -92,22 +92,30 @@ public sealed class ShareManagementService(
         var revoked = await revoke.ExecuteScalarAsync(cancellationToken) is Guid;
         if (!revoked)
         {
-            await transaction.RollbackAsync(cancellationToken);
+            await InsertAuditAsync(connection, transaction, accountId, "share_revoke_denied", shareId, "denied", now, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return false;
         }
 
-        await using var audit = new NpgsqlCommand("""
-            INSERT INTO audit_log (id, actor_reference, actor_role, action, target_type, target_reference, result, occurred_at)
-            VALUES (@id, @actor, 'patient', 'share_revoked', 'share_link', @target, 'allowed', @now)
-            """, connection, transaction);
-        audit.Parameters.AddWithValue("id", Guid.NewGuid());
-        audit.Parameters.AddWithValue("actor", accountId.ToString());
-        audit.Parameters.AddWithValue("target", shareId.ToString());
-        audit.Parameters.AddWithValue("now", now);
-        await audit.ExecuteNonQueryAsync(cancellationToken);
+        await InsertAuditAsync(connection, transaction, accountId, "share_revoked", shareId, "allowed", now, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         logger.LogInformation("Share revoked {ShareId}", shareId);
         return true;
+    }
+
+    private static async Task InsertAuditAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid accountId, string action, Guid shareId, string result, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var audit = new NpgsqlCommand("""
+            INSERT INTO audit_log (id, actor_reference, actor_role, action, target_type, target_reference, result, occurred_at)
+            VALUES (@id, @actor, 'patient', @action, 'share_link', @target, @result, @now)
+            """, connection, transaction);
+        audit.Parameters.AddWithValue("id", Guid.NewGuid());
+        audit.Parameters.AddWithValue("actor", accountId.ToString());
+        audit.Parameters.AddWithValue("action", action);
+        audit.Parameters.AddWithValue("target", shareId.ToString());
+        audit.Parameters.AddWithValue("result", result);
+        audit.Parameters.AddWithValue("now", now);
+        await audit.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken)

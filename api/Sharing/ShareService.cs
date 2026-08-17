@@ -60,7 +60,8 @@ public sealed class ShareService(
 
         if (!await IsOwnedResourceAsync(connection, transaction, accountId, resourceType, request.ResourceId, cancellationToken))
         {
-            await transaction.RollbackAsync(cancellationToken);
+            await InsertAuditAsync(connection, transaction, accountId, "share_mint_denied", request.ResourceId, "denied", now, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return null;
         }
 
@@ -74,7 +75,7 @@ public sealed class ShareService(
 
         await InsertShareAsync(connection, transaction, shareId, tokenHash, resourceType, request.ResourceId, request.RecipientEmail, expiresAt, cancellationToken);
         await InsertOutboxAsync(connection, transaction, shareId, payload, now, cancellationToken);
-        await InsertAuditAsync(connection, transaction, accountId, shareId, now, cancellationToken);
+        await InsertAuditAsync(connection, transaction, accountId, "share_minted", shareId, "allowed", now, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         logger.LogInformation("Share minted {ShareId} {ResourceType} {ElapsedMilliseconds}ms", shareId, resourceType, (clock.GetCurrentInstant() - startedAt).TotalMilliseconds);
@@ -119,10 +120,10 @@ public sealed class ShareService(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task InsertAuditAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid accountId, Guid shareId, Instant now, CancellationToken cancellationToken)
+    private static async Task InsertAuditAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid accountId, string action, Guid target, string result, Instant now, CancellationToken cancellationToken)
     {
-        await using var command = new NpgsqlCommand("INSERT INTO audit_log (id, actor_reference, actor_role, action, target_type, target_reference, result, occurred_at) VALUES (@id, @actor, 'patient', 'share_minted', 'share_link', @target, 'allowed', @now)", connection, transaction);
-        command.Parameters.AddWithValue("id", Guid.NewGuid()); command.Parameters.AddWithValue("actor", accountId.ToString()); command.Parameters.AddWithValue("target", shareId.ToString()); command.Parameters.AddWithValue("now", now.ToDateTimeOffset());
+        await using var command = new NpgsqlCommand("INSERT INTO audit_log (id, actor_reference, actor_role, action, target_type, target_reference, result, occurred_at) VALUES (@id, @actor, 'patient', @action, 'share_link', @target, @result, @now)", connection, transaction);
+        command.Parameters.AddWithValue("id", Guid.NewGuid()); command.Parameters.AddWithValue("actor", accountId.ToString()); command.Parameters.AddWithValue("action", action); command.Parameters.AddWithValue("target", target.ToString()); command.Parameters.AddWithValue("result", result); command.Parameters.AddWithValue("now", now.ToDateTimeOffset());
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 }

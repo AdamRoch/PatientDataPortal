@@ -31,16 +31,18 @@ public sealed class ShareManagementEndpointTests
         Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
         Assert.Equal(ManagementApplicationFactory.UserId, factory.Shares.RevokedFor);
+        Assert.Contains(factory.Audit.Events, audit => audit.Action == "share_list_viewed" && audit.TargetType == "share_link" && audit.Result == "allowed");
     }
 
     private sealed class ManagementApplicationFactory : WebApplicationFactory<Program>
     {
         public static readonly Guid UserId = Guid.Parse("d9af9bf7-c76d-4cc8-a3f4-66e89224e66a");
         public FakeManagementShares Shares { get; } = new();
+        public CapturingAudit Audit { get; } = new();
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.ConfigureTestServices(services =>
         {
-            services.RemoveAll<ISupabaseJwtVerifier>(); services.RemoveAll<IUserProfileRoleRepository>(); services.RemoveAll<IIdentityVerificationService>(); services.RemoveAll<IShareManagementService>();
-            services.AddSingleton<ISupabaseJwtVerifier>(new FakeJwt()); services.AddSingleton<IUserProfileRoleRepository>(new PatientRole()); services.AddSingleton<IIdentityVerificationService>(new VerifiedIdentity()); services.AddSingleton<IShareManagementService>(Shares);
+            services.RemoveAll<ISupabaseJwtVerifier>(); services.RemoveAll<IUserProfileRoleRepository>(); services.RemoveAll<IIdentityVerificationService>(); services.RemoveAll<IShareManagementService>(); services.RemoveAll<IAuditWriter>();
+            services.AddSingleton<ISupabaseJwtVerifier>(new FakeJwt()); services.AddSingleton<IUserProfileRoleRepository>(new PatientRole()); services.AddSingleton<IIdentityVerificationService>(new VerifiedIdentity()); services.AddSingleton<IShareManagementService>(Shares); services.AddSingleton<IAuditWriter>(Audit);
         });
     }
     private sealed class FakeJwt : ISupabaseJwtVerifier { public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token == "valid" ? new AuthenticatedUser(ManagementApplicationFactory.UserId, true) : null); }
@@ -51,5 +53,11 @@ public sealed class ShareManagementEndpointTests
         public Guid OwnedShareId { get; } = Guid.NewGuid(); public Guid? ListedFor { get; private set; } public Guid? RevokedFor { get; private set; }
         public Task<IReadOnlyList<ManagedShare>> ListAsync(Guid accountId, CancellationToken cancellationToken) { ListedFor = accountId; return Task.FromResult<IReadOnlyList<ManagedShare>>([new(OwnedShareId, "report", Guid.NewGuid(), "recipient@example.test", DateTimeOffset.UtcNow.AddHours(1), DateTimeOffset.UtcNow, null, "active")]); }
         public Task<bool> RevokeAsync(Guid accountId, Guid shareId, CancellationToken cancellationToken) { RevokedFor = accountId; return Task.FromResult(shareId == OwnedShareId); }
+    }
+    private sealed class CapturingAudit : IAuditWriter
+    {
+        public List<AuditEvent> Events { get; } = [];
+        public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { Events.Add(auditEvent); return Task.CompletedTask; }
+        public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { Events.Add(auditEvent); return Task.CompletedTask; }
     }
 }

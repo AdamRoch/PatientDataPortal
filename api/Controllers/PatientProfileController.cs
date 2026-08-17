@@ -8,12 +8,14 @@ namespace PatientDataPortal.Api.Controllers;
 [ApiController]
 [Route("api/profile")]
 [RequireRole(AppRole.Patient)]
-public sealed class PatientProfileController(IPatientProfileRepository profiles) : ControllerBase
+public sealed class PatientProfileController(IPatientProfileRepository profiles, IAuditWriter audit) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<PatientProfile>> Get(CancellationToken cancellationToken)
     {
         var profile = await profiles.GetAsync(UserId(), cancellationToken);
+        if (profile is not null)
+            await audit.WriteAllowedAsync(new AuditEvent(UserId().ToString(), "patient", "profile_viewed", "patient_profile", "own", "allowed"), cancellationToken);
         return profile is null ? NotFound() : Ok(profile);
     }
 

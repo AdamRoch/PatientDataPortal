@@ -33,7 +33,13 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
     [HttpGet("api/shares")]
     public async Task<ActionResult<IReadOnlyList<ManagedShare>>> Shares(
         [FromServices] IShareManagementService shares,
-        CancellationToken cancellationToken) => Ok(await shares.ListAsync(UserId(), cancellationToken));
+        [FromServices] IAuditWriter audit,
+        CancellationToken cancellationToken)
+    {
+        var result = await shares.ListAsync(UserId(), cancellationToken);
+        await audit.WriteAllowedAsync(new AuditEvent(UserId().ToString(), "patient", "share_list_viewed", "share_link", "own", "allowed"), cancellationToken);
+        return Ok(result);
+    }
 
     [HttpDelete("api/shares/{shareId:guid}")]
     public async Task<IActionResult> RevokeShare(
@@ -44,7 +50,13 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
     [HttpGet("api/studies")]
     public async Task<ActionResult<IReadOnlyList<StudyListItem>>> Studies(
         [FromServices] IStudyRepository studies,
-        CancellationToken cancellationToken) => Ok(await studies.ListCompletedForPatientAsync(UserId(), cancellationToken));
+        [FromServices] IAuditWriter audit,
+        CancellationToken cancellationToken)
+    {
+        var result = await studies.ListCompletedForPatientAsync(UserId(), cancellationToken);
+        await audit.WriteAllowedAsync(new AuditEvent(UserId().ToString(), "patient", "study_list_viewed", "study", "own_completed", "allowed"), cancellationToken);
+        return Ok(result);
+    }
 
     [HttpGet("api/images/{id:guid}")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
@@ -57,7 +69,13 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
     [HttpGet("api/reports")]
     public async Task<ActionResult<IReadOnlyList<SignedReportListItem>>> Reports(
         [FromServices] IReportRepository reports,
-        CancellationToken cancellationToken) => Ok(await reports.ListSignedForPatientAsync(UserId(), cancellationToken));
+        [FromServices] IAuditWriter audit,
+        CancellationToken cancellationToken)
+    {
+        var result = await reports.ListSignedForPatientAsync(UserId(), cancellationToken);
+        await audit.WriteAllowedAsync(new AuditEvent(UserId().ToString(), "patient", "report_list_viewed", "report", "own_signed", "allowed"), cancellationToken);
+        return Ok(result);
+    }
 
     [HttpGet("api/reports/{reportId:guid}/view")]
     public async Task<IActionResult> ViewReport(
@@ -70,12 +88,12 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
         var report = await reports.FindSignedForPatientAsync(reportId, UserId(), cancellationToken);
         if (report is null)
         {
-            await auditWriter.WriteDeniedAsync(new AuditEvent(UserId().ToString(), "patient", "report_view", "report", reportId.ToString(), "denied"), cancellationToken);
+            await auditWriter.WriteDeniedAsync(new AuditEvent(UserId().ToString(), "patient", "content_access_denied", "report", reportId.ToString(), "denied"), cancellationToken);
             return NotFound();
         }
 
         var url = await storage.CreateSignedReadUrlAsync(report.StoragePath, cancellationToken);
-        await auditWriter.WriteAllowedAsync(new AuditEvent(UserId().ToString(), "patient", "report_view", "report", report.Id.ToString(), "allowed"), cancellationToken);
+        await auditWriter.WriteAllowedAsync(new AuditEvent(UserId().ToString(), "patient", "content_access_granted", "report", report.Id.ToString(), "allowed"), cancellationToken);
         return Ok(new { url = url.ToString() });
     }
 

@@ -165,6 +165,7 @@ public sealed class AppointmentBookingTests
         Assert.Equal("booked", await fixture.SlotStatusAsync(newSlot));
         Assert.Equal((newSlot, 2, "confirmed"), await fixture.AppointmentStateAsync(appointment.Id));
         Assert.Equal(new[] { (1, "superseded"), (2, "pending") }, await fixture.ReminderStatesAsync(appointment.Id));
+        Assert.Equal(1, await fixture.CountAppointmentAuditsAsync(appointment.Id, "appointment_rescheduled"));
     }
 
     [Fact]
@@ -419,6 +420,7 @@ public sealed class AppointmentBookingTests
         public Task<int> CountAppointmentEventsAsync(Guid appointmentId) => ScalarAsync<int>("SELECT count(*)::int FROM appointment_events WHERE appointment_id = @appointment", ("appointment", appointmentId));
         public Task<int> CountRemindersAsync(Guid appointmentId) => ScalarAsync<int>("SELECT count(*)::int FROM email_outbox WHERE appointment_id = @appointment", ("appointment", appointmentId));
         public Task<int> CountAppointmentAuditsAsync(Guid appointmentId) => ScalarAsync<int>("SELECT count(*)::int FROM audit_log WHERE target_type = 'appointment' AND target_reference = @appointment", ("appointment", appointmentId.ToString()));
+        public Task<int> CountAppointmentAuditsAsync(Guid appointmentId, string action) => ScalarAsync<int>("SELECT count(*)::int FROM audit_log WHERE target_type = 'appointment' AND target_reference = @appointment AND action = @action", ("appointment", appointmentId.ToString()), ("action", action));
         public Task<int> CountAppointmentEventsForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM appointment_events WHERE appointment_id IN (SELECT id FROM appointments WHERE slot_id = @slot)", ("slot", slot));
         public Task<int> CountRemindersForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM email_outbox WHERE appointment_id IN (SELECT id FROM appointments WHERE slot_id = @slot)", ("slot", slot));
         public Task<int> CountAppointmentAuditsForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM audit_log WHERE target_type = 'appointment' AND target_reference IN (SELECT id::text FROM appointments WHERE slot_id = @slot)", ("slot", slot));

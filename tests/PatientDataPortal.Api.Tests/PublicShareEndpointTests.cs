@@ -101,6 +101,20 @@ public sealed class PublicShareEndpointTests
     }
 
     [Fact]
+    public async Task MissingSharedObjectIsDeniedAndDoesNotClaimDelivery()
+    {
+        await using var factory = new PublicShareApplicationFactory { Storage = { ContentAvailable = false } };
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/public/share/live/content");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var audit = Assert.Single(factory.Audit.Events);
+        Assert.Equal("shared_content_denied", audit.Action);
+        Assert.Equal("denied", audit.Result);
+    }
+
+    [Fact]
     public async Task TokenIsNotReflectedInDeliveryHeadersOrAudit()
     {
         await using var factory = new PublicShareApplicationFactory();
@@ -172,10 +186,11 @@ public sealed class PublicShareEndpointTests
     private sealed class FakeStorage : IPublicShareStorage
     {
         public int OpenCount { get; private set; }
+        public bool ContentAvailable { get; set; } = true;
         public Task<PublicShareContent?> OpenReadAsync(PublicShare share, CancellationToken cancellationToken)
         {
             OpenCount++;
-            return Task.FromResult<PublicShareContent?>(new PublicShareContent(new MemoryStream(Encoding.UTF8.GetBytes("file bytes")), "application/pdf", "shared-file.pdf"));
+            return Task.FromResult<PublicShareContent?>(ContentAvailable ? new PublicShareContent(new MemoryStream(Encoding.UTF8.GetBytes("file bytes")), "application/pdf", "shared-file.pdf") : null);
         }
     }
 

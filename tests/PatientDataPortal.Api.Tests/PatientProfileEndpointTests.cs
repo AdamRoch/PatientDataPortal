@@ -35,6 +35,7 @@ public sealed class PatientProfileEndpointTests
         Assert.Equal("America/Chicago", after.TimeZone);
         Assert.Equal(ProfileApplicationFactory.UserId, factory.Profiles.LastUpdatedUserId);
         Assert.Equal("Other Patient", factory.Profiles.GetStored(ProfileApplicationFactory.OtherUserId).DisplayName);
+        Assert.Contains(factory.Audit.Events, audit => audit.Action == "profile_viewed" && audit.TargetType == "patient_profile" && audit.Result == "allowed");
     }
 
     [Fact]
@@ -63,6 +64,7 @@ public sealed class PatientProfileEndpointTests
         public static readonly Guid UserId = Guid.Parse("7494cb41-69d6-4a86-8cec-a8d82da7b957");
         public static readonly Guid OtherUserId = Guid.Parse("052e7848-3763-40f7-b45a-7c8c38320788");
         public FakeProfiles Profiles { get; } = new();
+        public CapturingAudit Audit { get; } = new();
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -71,9 +73,11 @@ public sealed class PatientProfileEndpointTests
                 services.RemoveAll<ISupabaseJwtVerifier>();
                 services.RemoveAll<IUserProfileRoleRepository>();
                 services.RemoveAll<IPatientProfileRepository>();
+                services.RemoveAll<IAuditWriter>();
                 services.AddSingleton<ISupabaseJwtVerifier>(new FakeVerifier());
                 services.AddSingleton<IUserProfileRoleRepository>(new FakeRoles(role));
                 services.AddSingleton<IPatientProfileRepository>(Profiles);
+                services.AddSingleton<IAuditWriter>(Audit);
             });
         }
     }
@@ -111,5 +115,12 @@ public sealed class PatientProfileEndpointTests
         }
 
         public PatientProfile GetStored(Guid userId) => profiles[userId];
+    }
+
+    public sealed class CapturingAudit : IAuditWriter
+    {
+        public List<AuditEvent> Events { get; } = [];
+        public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { Events.Add(auditEvent); return Task.CompletedTask; }
+        public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { Events.Add(auditEvent); return Task.CompletedTask; }
     }
 }

@@ -57,7 +57,7 @@ public sealed class ShareServiceTests
         Assert.Null(foreign);
         Assert.Null(preliminary);
         Assert.Equal(0, await fixture.OutboxCountAsync());
-        Assert.Equal(0, await fixture.AuditCountAsync());
+        Assert.Equal(2, await fixture.AuditCountAsync("share_mint_denied"));
     }
 
     [Fact]
@@ -143,6 +143,7 @@ public sealed class ShareServiceTests
 
         Assert.False(await fixture.Management().RevokeAsync(fixture.AccountId, foreignShare, default));
         Assert.Equal(0, await fixture.AuditCountAsync("share_revoked"));
+        Assert.Equal(1, await fixture.AuditCountAsync("share_revoke_denied"));
         Assert.Null(await fixture.RevokedAtAsync(foreignShare));
     }
 

@@ -56,6 +56,7 @@ public sealed class AppointmentChangeService(IOptions<DatabaseOptions> databaseO
         var newVersion = appointment.ScheduleVersion + 1;
         await ExecuteAsync(connection, transaction, "UPDATE slots SET status = 'open' WHERE id = $1 AND provider_id = $2 AND status = 'booked'", cancellationToken, appointment.SlotId, appointment.ProviderId);
         await ExecuteAsync(connection, transaction, "UPDATE appointments SET slot_id = $1, start_at = $2, schedule_version = $3, updated_at = $4 WHERE id = $5", cancellationToken, newSlotId, newStartAt.Value, newVersion, now, appointment.Id);
+        await ExecuteAsync(connection, transaction, "INSERT INTO audit_log (id, actor_reference, actor_role, action, target_type, target_reference, result, occurred_at) VALUES ($1, $2, 'patient', 'appointment_rescheduled', 'appointment', $3, 'allowed', $4)", cancellationToken, Guid.NewGuid(), patientUserId.ToString(), appointment.Id.ToString(), now);
         await SupersedePendingRemindersAsync(connection, transaction, appointment.Id, appointment.ScheduleVersion, now, cancellationToken);
         if (ReminderSchedule.IsDueBeforeStart(newStartAt.Value, now, reminderOptions.Value))
             await ReminderSchedule.InsertAsync(connection, transaction, appointment.Id, newVersion, newStartAt.Value, appointment.ReminderRecipientEmail, reminderOptions.Value, cancellationToken);
