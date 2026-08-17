@@ -202,3 +202,17 @@ The retention/deletion behavior is defined by [ADR 0006](ADR/0006-audit-and-dele
 ## Hosting and service limits
 
 The planned deployment uses Vercel's free tier for the web app, Railway Pro for the API, Supabase's free tier for Postgres/Auth/Storage, and Resend's free tier for email. Railway's paid plan does not sleep, but that is not proof of availability, redundancy, or failover. Vercel can have cold paths; Supabase can pause after approximately seven days of inactivity and has roughly 1 GB storage and 5 GB/month egress; Resend allows 100 emails/day and 3,000/month. A health probe is reachability evidence, not a resilience guarantee. Report local, external-contract, benchmark, and deployed results separately.
+
+## Security hygiene sweep
+
+Run the repeatable tracked-content sweep before sharing or deploying a change:
+
+```sh
+npm run security:sweep
+```
+
+It uses `gitleaks` to inspect tracked and non-ignored working-tree files, so it never reads
+ignored local environment files. It also checks runtime log/evidence formats for the
+deterministic synthetic patient name, patient-reference, date-of-birth, and demo-email markers,
+and verifies that `.env.example` lists each application and seed-command setting. Install
+[`gitleaks`](https://github.com/gitleaks/gitleaks) locally if the command reports it missing.

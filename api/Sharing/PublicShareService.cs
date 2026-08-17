@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
+using NodaTime;
 using Npgsql;
 using PatientDataPortal.Api.Configuration;
 
@@ -15,7 +16,7 @@ public interface IPublicShareService
     Task<PublicShare?> FindActiveAsync(string token, CancellationToken cancellationToken);
 }
 
-public sealed class PublicShareService(IOptions<DatabaseOptions> databaseOptions) : IPublicShareService
+public sealed class PublicShareService(IOptions<DatabaseOptions> databaseOptions, IClock clock) : IPublicShareService
 {
     public async Task<PublicShare?> FindActiveAsync(string token, CancellationToken cancellationToken)
     {
@@ -34,11 +35,12 @@ public sealed class PublicShareService(IOptions<DatabaseOptions> databaseOptions
             LEFT JOIN reports ON share_links.resource_type = 'report' AND reports.id = share_links.resource_id
             WHERE share_links.token_hash = @token_hash
               AND share_links.revoked_at IS NULL
-              AND share_links.expires_at > CURRENT_TIMESTAMP
-              AND ((share_links.resource_type = 'image' AND studies.visit_status = 'completed' AND studies.performed_at IS NOT NULL AND studies.performed_at <= CURRENT_TIMESTAMP)
+              AND share_links.expires_at > @now
+              AND ((share_links.resource_type = 'image' AND studies.visit_status = 'completed' AND studies.performed_at IS NOT NULL AND studies.performed_at <= @now)
                    OR (share_links.resource_type = 'report' AND reports.status = 'signed' AND reports.signed_at IS NOT NULL))
             """);
         command.Parameters.AddWithValue("token_hash", tokenHash);
+        command.Parameters.AddWithValue("now", clock.GetCurrentInstant().ToDateTimeOffset());
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
             ? new PublicShare(reader.GetGuid(0), reader.GetString(1), reader.GetString(2))
@@ -101,7 +103,7 @@ public interface IPublicShareFailureLimiter
     bool RecordFailure(string requestKey);
 }
 
-public sealed class PublicShareFailureLimiter : IPublicShareFailureLimiter
+public sealed class PublicShareFailureLimiter(IClock clock) : IPublicShareFailureLimiter
 {
     private const int MaximumFailures = 10;
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
@@ -109,7 +111,7 @@ public sealed class PublicShareFailureLimiter : IPublicShareFailureLimiter
 
     public bool RecordFailure(string requestKey)
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = clock.GetCurrentInstant().ToDateTimeOffset();
         var window = _windows.AddOrUpdate(requestKey, _ => new FailureWindow(now, 1), (_, current) => current.StartedAt + Window <= now ? new FailureWindow(now, 1) : current with { Count = current.Count + 1 });
         return window.Count <= MaximumFailures;
     }
