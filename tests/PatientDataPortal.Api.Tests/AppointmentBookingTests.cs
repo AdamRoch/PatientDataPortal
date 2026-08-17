@@ -32,10 +32,10 @@ public sealed class AppointmentBookingTests
         var retry = await fixture.Service.BookAsync(fixture.PatientId, request, default);
 
         Assert.Equal(first.Id, retry.Id);
-        Assert.Equal(1, await fixture.CountAsync("appointments"));
-        Assert.Equal(2, await fixture.CountAsync("appointment_events"));
-        Assert.Equal(1, await fixture.CountAsync("email_outbox"));
-        Assert.Equal(1, await fixture.CountAsync("audit_log"));
+        Assert.Equal(1, await fixture.CountAppointmentsForSlotAsync(slot));
+        Assert.Equal(2, await fixture.CountAppointmentEventsAsync(first.Id));
+        Assert.Equal(1, await fixture.CountRemindersAsync(first.Id));
+        Assert.Equal(1, await fixture.CountAppointmentAuditsAsync(first.Id));
         Assert.Equal("booked", await fixture.SlotStatusAsync(slot));
     }
 
@@ -51,8 +51,53 @@ public sealed class AppointmentBookingTests
 
         Assert.Single(outcomes, result => result.Success);
         Assert.Single(outcomes, result => !result.Success && result.ErrorCode == "slot_no_longer_available");
-        Assert.Equal(1, await fixture.CountAsync("appointments"));
+        Assert.Equal(1, await fixture.CountAppointmentsForSlotAsync(slot));
         Assert.Equal("booked", await fixture.SlotStatusAsync(slot));
+    }
+
+    [Fact]
+    public async Task SimultaneousRequestsForTheLastOpenSlotProduceOneCreatedAppointmentAndConflicts()
+    {
+        const int attemptCount = 8;
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var slot = await fixture.SeedSlotAsync();
+        await using var factory = new BookingConcurrencyApplicationFactory(fixture.PatientId);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
+        var releaseRequests = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var requests = Enumerable.Range(0, attemptCount).Select(async attempt =>
+        {
+            await releaseRequests.Task;
+            return await client.PostAsJsonAsync("/api/appointments", new
+            {
+                slotId = slot,
+                serviceId = fixture.ServiceId,
+                idempotencyKey = $"concurrent-{attempt}"
+            });
+        }).ToArray();
+
+        releaseRequests.SetResult(true);
+        var responses = await Task.WhenAll(requests);
+        try
+        {
+            Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
+            var conflicts = responses.Where(response => response.StatusCode == HttpStatusCode.Conflict).ToArray();
+            Assert.Equal(attemptCount - 1, conflicts.Length);
+            await Task.WhenAll(conflicts.Select(async response =>
+            {
+                var error = await response.Content.ReadFromJsonAsync<BookingError>();
+                Assert.NotNull(error);
+                Assert.Equal("slot_no_longer_available", error.Error);
+            }));
+            Assert.Equal(1, await fixture.CountAppointmentsForSlotAsync(slot));
+            Assert.Equal("booked", await fixture.SlotStatusAsync(slot));
+        }
+        finally
+        {
+            foreach (var response in responses) response.Dispose();
+        }
     }
 
     [Fact]
@@ -66,10 +111,10 @@ public sealed class AppointmentBookingTests
 
         Assert.Equal("invalid_service", exception.Code);
         Assert.Equal("open", await fixture.SlotStatusAsync(slot));
-        Assert.Equal(0, await fixture.CountAsync("appointments"));
-        Assert.Equal(0, await fixture.CountAsync("appointment_events"));
-        Assert.Equal(0, await fixture.CountAsync("email_outbox"));
-        Assert.Equal(0, await fixture.CountAsync("audit_log"));
+        Assert.Equal(0, await fixture.CountAppointmentsForSlotAsync(slot));
+        Assert.Equal(0, await fixture.CountAppointmentEventsForSlotAsync(slot));
+        Assert.Equal(0, await fixture.CountRemindersForSlotAsync(slot));
+        Assert.Equal(0, await fixture.CountAppointmentAuditsForSlotAsync(slot));
     }
 
     [Fact]
@@ -162,6 +207,7 @@ public sealed class AppointmentBookingTests
     }
 
     private sealed record BookingOutcome(bool Success, string? ErrorCode);
+    private sealed record BookingError(string Error);
 
     private sealed class AppointmentApplicationFactory : WebApplicationFactory<Program>
     {
@@ -172,11 +218,20 @@ public sealed class AppointmentBookingTests
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<ISupabaseJwtVerifier>(); services.RemoveAll<IUserProfileRoleRepository>(); services.RemoveAll<IAppointmentBookingService>(); services.RemoveAll<IAppointmentChangeService>();
-            services.AddSingleton<ISupabaseJwtVerifier>(new FakeVerifier()); services.AddSingleton<IUserProfileRoleRepository>(new FakeRoles()); services.AddSingleton<IAppointmentBookingService>(Bookings); services.AddSingleton<IAppointmentChangeService>(new FakeChanges());
+            services.AddSingleton<ISupabaseJwtVerifier>(new FakeVerifier(PatientId)); services.AddSingleton<IUserProfileRoleRepository>(new FakeRoles()); services.AddSingleton<IAppointmentBookingService>(Bookings); services.AddSingleton<IAppointmentChangeService>(new FakeChanges());
         });
     }
 
-    private sealed class FakeVerifier : ISupabaseJwtVerifier { public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult<AuthenticatedUser?>(token == "valid" ? new(AppointmentApplicationFactory.PatientId, true) : null); }
+    private sealed class BookingConcurrencyApplicationFactory(Guid patientId) : WebApplicationFactory<Program>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<ISupabaseJwtVerifier>(); services.RemoveAll<IUserProfileRoleRepository>();
+            services.AddSingleton<ISupabaseJwtVerifier>(new FakeVerifier(patientId)); services.AddSingleton<IUserProfileRoleRepository>(new FakeRoles());
+        });
+    }
+
+    private sealed class FakeVerifier(Guid patientId) : ISupabaseJwtVerifier { public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult<AuthenticatedUser?>(token == "valid" ? new(patientId, true) : null); }
     private sealed class FakeRoles : IUserProfileRoleRepository { public Task<AppRole?> GetRoleAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<AppRole?>(AppRole.Patient); }
     private sealed class FakeBookings : IAppointmentBookingService
     {
@@ -224,7 +279,13 @@ public sealed class AppointmentBookingTests
             await ExecuteAsync("INSERT INTO slots (id, provider_id, start_at, end_at, status) VALUES (@id, @provider, @start, @end, 'open')", ("id", slot), ("provider", ProviderId), ("start", start), ("end", start.AddMinutes(30)));
             return slot;
         }
-        public Task<int> CountAsync(string table) => ScalarAsync<int>($"SELECT count(*)::int FROM {table}");
+        public Task<int> CountAppointmentsForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM appointments WHERE slot_id = @slot", ("slot", slot));
+        public Task<int> CountAppointmentEventsAsync(Guid appointmentId) => ScalarAsync<int>("SELECT count(*)::int FROM appointment_events WHERE appointment_id = @appointment", ("appointment", appointmentId));
+        public Task<int> CountRemindersAsync(Guid appointmentId) => ScalarAsync<int>("SELECT count(*)::int FROM email_outbox WHERE appointment_id = @appointment", ("appointment", appointmentId));
+        public Task<int> CountAppointmentAuditsAsync(Guid appointmentId) => ScalarAsync<int>("SELECT count(*)::int FROM audit_log WHERE target_type = 'appointment' AND target_reference = @appointment", ("appointment", appointmentId.ToString()));
+        public Task<int> CountAppointmentEventsForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM appointment_events WHERE appointment_id IN (SELECT id FROM appointments WHERE slot_id = @slot)", ("slot", slot));
+        public Task<int> CountRemindersForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM email_outbox WHERE appointment_id IN (SELECT id FROM appointments WHERE slot_id = @slot)", ("slot", slot));
+        public Task<int> CountAppointmentAuditsForSlotAsync(Guid slot) => ScalarAsync<int>("SELECT count(*)::int FROM audit_log WHERE target_type = 'appointment' AND target_reference IN (SELECT id::text FROM appointments WHERE slot_id = @slot)", ("slot", slot));
         public Task<string> SlotStatusAsync(Guid slot) => ScalarAsync<string>("SELECT status FROM slots WHERE id = @id", ("id", slot));
         public Task SetSlotStartAsync(Guid slot, string startsAt) => ExecuteAsync("UPDATE slots SET start_at = @start, end_at = @end WHERE id = @id", ("id", slot), ("start", DateTimeOffset.Parse(startsAt)), ("end", DateTimeOffset.Parse(startsAt).AddMinutes(30)));
         public Task SetAppointmentStartAsync(Guid appointmentId, string startsAt) => ExecuteAsync("UPDATE appointments SET start_at = @start WHERE id = @id", ("id", appointmentId), ("start", DateTimeOffset.Parse(startsAt)));
