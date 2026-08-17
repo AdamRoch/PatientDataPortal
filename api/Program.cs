@@ -101,6 +101,7 @@ builder.Services.AddScoped<IProviderScheduleRepository, ProviderScheduleReposito
 builder.Services.AddScoped<IProviderDiscoveryRepository, ProviderDiscoveryRepository>();
 builder.Services.AddSingleton<IShareTokenGenerator, ShareTokenGenerator>();
 builder.Services.AddScoped<IShareService, ShareService>();
+builder.Services.AddScoped<IShareManagementService, ShareManagementService>();
 builder.Services.AddScoped<IPublicShareService, PublicShareService>();
 builder.Services.AddScoped<IPublicShareStorage, SupabasePublicShareStorage>();
 builder.Services.AddSingleton<IPublicShareFailureLimiter, PublicShareFailureLimiter>();

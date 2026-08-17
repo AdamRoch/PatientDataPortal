@@ -144,3 +144,21 @@ test("appointment picker uses the authenticated discovery routes and labels view
   assert.match(picker, /Intl\.DateTimeFormat/);
   assert.match(styles, /@media \(max-width: 480px\)/);
 });
+
+test("share management uses authenticated patient routes and renders active and historic links at phone width", async () => {
+  const listRoute = await source("app/api/patient/shares/route.ts");
+  const revokeRoute = await source("app/api/patient/shares/[id]/route.ts");
+  const management = await source("components/share-management.tsx");
+  const styles = await source("components/share-management.module.css");
+
+  assert.match(listRoute, /auth\.getUser/);
+  assert.match(listRoute, /new URL\("\/api\/shares", apiUrl\)/);
+  assert.match(revokeRoute, /method: "DELETE"/);
+  assert.match(revokeRoute, /encodeURIComponent\(id\)/);
+  assert.match(management, /\/api\/patient\/shares/);
+  assert.match(management, /Revoke link/);
+  assert.match(management, /share\.recipientEmail/);
+  assert.match(management, /share\.expiresAt/);
+  assert.match(management, /share\.status/);
+  assert.match(styles, /@media \(max-width: 480px\)/);
+});
