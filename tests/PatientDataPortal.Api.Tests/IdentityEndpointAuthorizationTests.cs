@@ -78,7 +78,7 @@ public sealed class IdentityEndpointAuthorizationTests
     }
     private sealed class FakeJwtVerifier(bool emailVerified) : ISupabaseJwtVerifier { public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token == "valid" ? new AuthenticatedUser(Guid.Parse("7494cb41-69d6-4a86-8cec-a8d82da7b957"), emailVerified) : null); }
     private sealed class PatientProfile : IUserProfileRoleRepository { public Task<AppRole?> GetRoleAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<AppRole?>(AppRole.Patient); }
-    public sealed class NoopAuditWriter : IAuditWriter { public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => Task.CompletedTask; }
+    public sealed class NoopAuditWriter : IAuditWriter { public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => Task.CompletedTask; public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => Task.CompletedTask; }
     public sealed class FakeIdentityService(bool verifiedPatient) : IIdentityVerificationService
     {
         public bool LastEmailVerified { get; private set; }
