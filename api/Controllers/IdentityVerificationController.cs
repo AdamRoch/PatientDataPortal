@@ -11,6 +11,13 @@ namespace PatientDataPortal.Api.Controllers;
 [RequireRole(AppRole.Patient)]
 public sealed class IdentityVerificationController(IIdentityVerificationService identityVerification) : ControllerBase
 {
+    [HttpGet("status")]
+    public async Task<IActionResult> Status(CancellationToken cancellationToken)
+    {
+        var accountId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        return Ok(new { verified = await identityVerification.IsVerifiedPatientAsync(accountId, cancellationToken) });
+    }
+
     [HttpPost("verify")]
     public async Task<IActionResult> Verify([FromBody] IdentityVerificationRequest request, CancellationToken cancellationToken)
     {
