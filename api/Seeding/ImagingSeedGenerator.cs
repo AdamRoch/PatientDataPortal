@@ -10,12 +10,13 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace PatientDataPortal.Api.Seeding;
 
-/// <summary>Creates only synthetic, deterministic imaging fixtures for local and demo environments.</summary>
+/// <summary>Creates only synthetic, deterministic imaging and report fixtures for local and demo environments.</summary>
 public sealed class ImagingSeedGenerator
 {
     public const int PatientCount = 50;
     public const long StorageBudgetBytes = 1_000_000_000;
-    private const string Bucket = "study-assets";
+    private const string StudyAssetsBucket = "study-assets";
+    private const string ReportsBucket = "reports";
     private const int FrameBytes = 40 * 1024;
     private const int ThumbnailBytes = 8 * 1024;
 
@@ -41,14 +42,19 @@ public sealed class ImagingSeedGenerator
             await UpsertImageAsync(connection, transaction, image, cancellationToken);
         foreach (var clip in plan.Clips)
             await UpsertClipAsync(connection, transaction, clip, cancellationToken);
+        foreach (var report in plan.Reports)
+            await UpsertReportAsync(connection, transaction, report, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         using var http = new HttpClient { BaseAddress = new Uri(supabaseUrl + "/") };
         http.DefaultRequestHeaders.Add("apikey", serviceKey);
         http.DefaultRequestHeaders.Authorization = new("Bearer", serviceKey);
-        await EnsurePrivateBucketAsync(http, cancellationToken);
-        foreach (var asset in plan.Assets)
-            await UploadAsync(http, asset, cancellationToken);
+        await EnsurePrivateBucketAsync(http, StudyAssetsBucket, cancellationToken);
+        foreach (var asset in plan.ImagingAssets)
+            await UploadAsync(http, StudyAssetsBucket, asset, cancellationToken);
+        await EnsurePrivateBucketAsync(http, ReportsBucket, cancellationToken);
+        foreach (var asset in plan.ReportAssets)
+            await UploadAsync(http, ReportsBucket, asset, cancellationToken);
 
         return plan.ToSummary();
     }
@@ -79,6 +85,9 @@ public sealed class ImagingSeedGenerator
     private static Task UpsertClipAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, SeedClip clip, CancellationToken cancellationToken) =>
         ExecuteAsync(connection, transaction, "INSERT INTO cine_clips (id, study_id, storage_path, frame_count) VALUES (@id, @studyId, @path, @frameCount) ON CONFLICT (id) DO UPDATE SET study_id = EXCLUDED.study_id, storage_path = EXCLUDED.storage_path, frame_count = EXCLUDED.frame_count", cancellationToken, ("id", clip.Id), ("studyId", clip.StudyId), ("path", clip.ManifestPath), ("frameCount", clip.FrameCount));
 
+    private static Task UpsertReportAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, SeedReport report, CancellationToken cancellationToken) =>
+        ExecuteAsync(connection, transaction, "INSERT INTO reports (id, patient_record_id, study_id, status, signed_at, signed_by, storage_path) VALUES (@id, @patientId, @studyId, @status, @signedAt, @signedBy, @path) ON CONFLICT (id) DO UPDATE SET patient_record_id = EXCLUDED.patient_record_id, study_id = EXCLUDED.study_id, status = EXCLUDED.status, signed_at = EXCLUDED.signed_at, signed_by = EXCLUDED.signed_by, storage_path = EXCLUDED.storage_path", cancellationToken, ("id", report.Id), ("patientId", report.PatientId), ("studyId", report.StudyId), ("status", report.Status), ("signedAt", report.SignedAt), ("signedBy", report.SignedBy), ("path", report.Path));
+
     private static async Task ExecuteAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string sql, CancellationToken cancellationToken, params (string Name, object? Value)[] parameters)
     {
         await using var command = new NpgsqlCommand(sql, connection, transaction);
@@ -86,17 +95,23 @@ public sealed class ImagingSeedGenerator
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task EnsurePrivateBucketAsync(HttpClient http, CancellationToken cancellationToken)
+    private static async Task EnsurePrivateBucketAsync(HttpClient http, string bucket, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "storage/v1/bucket") { Content = JsonContent.Create(new { id = Bucket, name = Bucket, @public = false }) };
+        using var request = new HttpRequestMessage(HttpMethod.Post, "storage/v1/bucket") { Content = JsonContent.Create(new { id = bucket, name = bucket, @public = false }) };
         using var response = await http.SendAsync(request, cancellationToken);
-        if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.Conflict) return;
-        throw new HttpRequestException($"Could not create private {Bucket} bucket: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
+        if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.Conflict)
+            throw new HttpRequestException($"Could not create private {bucket} bucket: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
+
+        using var bucketResponse = await http.GetAsync($"storage/v1/bucket/{bucket}", cancellationToken);
+        bucketResponse.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await bucketResponse.Content.ReadAsStreamAsync(cancellationToken));
+        if (!document.RootElement.TryGetProperty("public", out var isPublic) || isPublic.ValueKind != JsonValueKind.False)
+            throw new InvalidOperationException($"Storage bucket {bucket} must be private before seeding fixtures.");
     }
 
-    private static async Task UploadAsync(HttpClient http, SeedAsset asset, CancellationToken cancellationToken)
+    private static async Task UploadAsync(HttpClient http, string bucket, SeedAsset asset, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"storage/v1/object/{Bucket}/{asset.Path}")
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"storage/v1/object/{bucket}/{asset.Path}")
         {
             Content = new ByteArrayContent(asset.Bytes),
         };
@@ -113,6 +128,7 @@ public sealed class ImagingSeedGenerator
     private sealed record SeedStudy(Guid Id, Guid PatientId, DateTimeOffset? PerformedAt, string Status, string Description);
     private sealed record SeedImage(Guid Id, Guid StudyId, string Path, string ThumbnailPath);
     private sealed record SeedClip(Guid Id, Guid StudyId, string ManifestPath, int FrameCount);
+    private sealed record SeedReport(Guid Id, Guid PatientId, Guid StudyId, string Status, DateTimeOffset? SignedAt, Guid? SignedBy, string Path);
 
     private sealed class ImagingSeedPlan
     {
@@ -120,8 +136,10 @@ public sealed class ImagingSeedGenerator
         public List<SeedStudy> Studies { get; } = [];
         public List<SeedImage> Images { get; } = [];
         public List<SeedClip> Clips { get; } = [];
-        public List<SeedAsset> Assets { get; } = [];
-        public long TotalBytes => Assets.Sum(asset => (long)asset.Bytes.Length);
+        public List<SeedReport> Reports { get; } = [];
+        public List<SeedAsset> ImagingAssets { get; } = [];
+        public List<SeedAsset> ReportAssets { get; } = [];
+        public long TotalBytes => ImagingAssets.Concat(ReportAssets).Sum(asset => (long)asset.Bytes.Length);
 
         public static ImagingSeedPlan Create()
         {
@@ -134,6 +152,8 @@ public sealed class ImagingSeedGenerator
                 var completedStudies = 1 + StableNumber($"completed:{patientNumber}", 5);
                 for (var visit = 1; visit <= completedStudies; visit++)
                     AddStudy(plan, patient, visit, "completed", new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.Zero).AddDays(-(patientNumber * 7 + visit)), ref hundredFrameClips);
+                if (patientNumber <= 12)
+                    AddReports(plan, patient);
                 if (patientNumber % 10 == 0) AddStudy(plan, patient, 90, "scheduled", null, ref hundredFrameClips);
                 if (patientNumber % 12 == 0) AddStudy(plan, patient, 91, "cancelled", null, ref hundredFrameClips);
             }
@@ -149,8 +169,8 @@ public sealed class ImagingSeedGenerator
             {
                 var image = new SeedImage(IdFor($"image:{study.Id}:{imageNumber}"), study.Id, $"studies/{study.Id}/images/{IdFor($"image:{study.Id}:{imageNumber}")}.jpg", $"studies/{study.Id}/thumbnails/{IdFor($"image:{study.Id}:{imageNumber}")}.jpg");
                 plan.Images.Add(image);
-                plan.Assets.Add(new SeedAsset(image.Path, "image/jpeg", SyntheticJpeg($"image:{image.Id}", FrameBytes, 256)));
-                plan.Assets.Add(new SeedAsset(image.ThumbnailPath, "image/jpeg", SyntheticJpeg($"thumbnail:{image.Id}", ThumbnailBytes, 96)));
+                plan.ImagingAssets.Add(new SeedAsset(image.Path, "image/jpeg", SyntheticJpeg($"image:{image.Id}", FrameBytes, 256)));
+                plan.ImagingAssets.Add(new SeedAsset(image.ThumbnailPath, "image/jpeg", SyntheticJpeg($"thumbnail:{image.Id}", ThumbnailBytes, 96)));
             }
             if (status != "completed") return;
             var clipCount = StableNumber($"clips:{study.Id}", 3);
@@ -166,14 +186,28 @@ public sealed class ImagingSeedGenerator
                 {
                     var path = $"studies/{study.Id}/cine/{clipId}/f{frame:0000}.jpg";
                     var bytes = SyntheticJpeg($"cine:{clipId}:{frame}", FrameBytes, 256);
-                    plan.Assets.Add(new SeedAsset(path, "image/jpeg", bytes));
+                    plan.ImagingAssets.Add(new SeedAsset(path, "image/jpeg", bytes));
                     frames.Add(new { path, bytes = bytes.Length });
                 }
-                plan.Assets.Add(new SeedAsset(manifestPath, "application/json", Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { frames, defaultFps = 12 }))));
+                plan.ImagingAssets.Add(new SeedAsset(manifestPath, "application/json", Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { frames, defaultFps = 12 }))));
             }
         }
 
-        public ImagingSeedSummary ToSummary() => new(Patients.Count, Studies.Count(study => study.Status == "completed"), Studies.Count(study => study.Status == "scheduled"), Studies.Count(study => study.Status == "cancelled"), Images.Count, Clips.Count, Clips.Count(clip => clip.FrameCount == 100), Assets.Count, TotalBytes, StorageBudgetBytes);
+        private static void AddReports(ImagingSeedPlan plan, SeedPatient patient)
+        {
+            var study = plan.Studies.First(candidate => candidate.PatientId == patient.Id && candidate.Status == "completed");
+            var signer = IdFor("synthetic-report-signer");
+            foreach (var status in new[] { "signed", "preliminary" })
+            {
+                var reportId = IdFor($"report:{patient.Id}:{status}");
+                var signed = status == "signed";
+                var report = new SeedReport(reportId, patient.Id, study.Id, status, signed ? study.PerformedAt!.Value.AddHours(2) : null, signed ? signer : null, $"reports/{reportId}.pdf");
+                plan.Reports.Add(report);
+                plan.ReportAssets.Add(new SeedAsset(report.Path, "application/pdf", SyntheticPdf(report.Id, report.Status)));
+            }
+        }
+
+        public ImagingSeedSummary ToSummary() => new(Patients.Count, Studies.Count(study => study.Status == "completed"), Studies.Count(study => study.Status == "scheduled"), Studies.Count(study => study.Status == "cancelled"), Images.Count, Clips.Count, Clips.Count(clip => clip.FrameCount == 100), Reports.Count(report => report.Status == "signed"), Reports.Count(report => report.Status == "preliminary"), ImagingAssets.Count + ReportAssets.Count, TotalBytes, StorageBudgetBytes);
     }
 
     private static Guid IdFor(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes("PTDP-17:" + value)).AsSpan(0, 16));
@@ -206,11 +240,42 @@ public sealed class ImagingSeedGenerator
         Array.Resize(ref bytes, targetBytes);
         return bytes;
     }
+
+    private static byte[] SyntheticPdf(Guid reportId, string status)
+    {
+        var text = $"SYNTHETIC DEMO ONLY - NOT A CLINICAL REPORT - {status.ToUpperInvariant()} - fixture {reportId}";
+        var stream = $"BT /F1 12 Tf 72 720 Td ({text}) Tj ET";
+        var objects = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            $"<< /Length {Encoding.ASCII.GetByteCount(stream)} >>\nstream\n{stream}\nendstream",
+        };
+        using var output = new MemoryStream();
+        using var writer = new StreamWriter(output, Encoding.ASCII, 1024, leaveOpen: true);
+        writer.Write("%PDF-1.4\n");
+        var offsets = new List<long> { 0 };
+        for (var index = 0; index < objects.Length; index++)
+        {
+            writer.Flush();
+            offsets.Add(output.Position);
+            writer.Write($"{index + 1} 0 obj\n{objects[index]}\nendobj\n");
+        }
+        writer.Flush();
+        var xref = output.Position;
+        writer.Write($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+        foreach (var offset in offsets.Skip(1)) writer.Write($"{offset:0000000000} 00000 n \n");
+        writer.Write($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        writer.Flush();
+        return output.ToArray();
+    }
 }
 
 public sealed record SeedAsset(string Path, string ContentType, byte[] Bytes);
 
-public sealed record ImagingSeedSummary(int Patients, int CompletedStudies, int ScheduledStudies, int CancelledStudies, int Images, int CineClips, int HundredFrameClips, int StorageObjects, long StorageBytes, long StorageBudgetBytes)
+public sealed record ImagingSeedSummary(int Patients, int CompletedStudies, int ScheduledStudies, int CancelledStudies, int Images, int CineClips, int HundredFrameClips, int SignedReports, int PreliminaryReports, int StorageObjects, long StorageBytes, long StorageBudgetBytes)
 {
-    public string ToLogLine() => string.Create(CultureInfo.InvariantCulture, $"imaging-seed patients={Patients} completed_studies={CompletedStudies} scheduled_studies={ScheduledStudies} cancelled_studies={CancelledStudies} images={Images} cine_clips={CineClips} hundred_frame_clips={HundredFrameClips} storage_objects={StorageObjects} storage_bytes={StorageBytes} storage_budget_bytes={StorageBudgetBytes}");
+    public string ToLogLine() => string.Create(CultureInfo.InvariantCulture, $"imaging-seed patients={Patients} completed_studies={CompletedStudies} scheduled_studies={ScheduledStudies} cancelled_studies={CancelledStudies} images={Images} cine_clips={CineClips} hundred_frame_clips={HundredFrameClips} signed_reports={SignedReports} preliminary_reports={PreliminaryReports} storage_objects={StorageObjects} storage_bytes={StorageBytes} storage_budget_bytes={StorageBudgetBytes}");
 }
