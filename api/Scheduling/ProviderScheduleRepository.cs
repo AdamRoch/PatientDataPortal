@@ -5,7 +5,7 @@ using PatientDataPortal.Api.Configuration;
 
 namespace PatientDataPortal.Api.Scheduling;
 
-public sealed class ProviderScheduleRepository(IOptions<DatabaseOptions> databaseOptions) : IProviderScheduleRepository
+public sealed class ProviderScheduleRepository(IOptions<DatabaseOptions> databaseOptions, IClock clock) : IProviderScheduleRepository
 {
     public async Task<ProviderSchedule?> GetAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -20,6 +20,7 @@ public sealed class ProviderScheduleRepository(IOptions<DatabaseOptions> databas
             await ExecuteAsync(connection, transaction, "DELETE FROM availability_rules WHERE provider_id = $1", cancellationToken, providerId);
             foreach (var rule in rules)
                 await ExecuteAsync(connection, transaction, "INSERT INTO availability_rules (id, provider_id, weekday, local_start, local_end, effective_from, effective_until) VALUES ($1, $2, $3, $4, $5, $6, $7)", cancellationToken, Guid.NewGuid(), providerId, (short)rule.Weekday, rule.LocalStart, rule.LocalEnd, rule.EffectiveFrom ?? today, rule.EffectiveUntil);
+            await RegenerateOpenSlotsAsync(connection, transaction, providerId, cancellationToken);
             return await ReadAsync(connection, transaction, providerId, cancellationToken);
         }, cancellationToken);
 
@@ -27,6 +28,7 @@ public sealed class ProviderScheduleRepository(IOptions<DatabaseOptions> databas
         MutateAsync(userId, async (connection, transaction, providerId) =>
         {
             await ExecuteAsync(connection, transaction, "UPDATE providers SET slot_length_min = $1 WHERE id = $2", cancellationToken, slotLengthMinutes, providerId);
+            await RegenerateOpenSlotsAsync(connection, transaction, providerId, cancellationToken);
             return await ReadAsync(connection, transaction, providerId, cancellationToken);
         }, cancellationToken);
 
@@ -35,6 +37,7 @@ public sealed class ProviderScheduleRepository(IOptions<DatabaseOptions> databas
         {
             var id = Guid.NewGuid();
             await ExecuteAsync(connection, transaction, "INSERT INTO blocked_times (id, provider_id, blocked_range) VALUES ($1, $2, tstzrange($3, $4, '[)'))", cancellationToken, id, providerId, startsAt.ToDateTimeOffset(), endsAt.ToDateTimeOffset());
+            await RegenerateOpenSlotsAsync(connection, transaction, providerId, cancellationToken);
             return new BlockedTime(id, startsAt, endsAt);
         }, cancellationToken);
 
@@ -42,12 +45,17 @@ public sealed class ProviderScheduleRepository(IOptions<DatabaseOptions> databas
         MutateAsync(userId, async (connection, transaction, providerId) =>
         {
             var count = await ExecuteAsync(connection, transaction, "UPDATE blocked_times SET blocked_range = tstzrange($1, $2, '[)') WHERE id = $3 AND provider_id = $4", cancellationToken, startsAt.ToDateTimeOffset(), endsAt.ToDateTimeOffset(), blockedTimeId, providerId);
+            if (count > 0) await RegenerateOpenSlotsAsync(connection, transaction, providerId, cancellationToken);
             return count == 0 ? null : new BlockedTime(blockedTimeId, startsAt, endsAt);
         }, cancellationToken);
 
     public Task<bool?> DeleteBlockedTimeAsync(Guid userId, Guid blockedTimeId, CancellationToken cancellationToken) =>
         MutateAsync(userId, async (connection, transaction, providerId) =>
-            await ExecuteAsync(connection, transaction, "DELETE FROM blocked_times WHERE id = $1 AND provider_id = $2", cancellationToken, blockedTimeId, providerId) > 0, cancellationToken);
+        {
+            var deleted = await ExecuteAsync(connection, transaction, "DELETE FROM blocked_times WHERE id = $1 AND provider_id = $2", cancellationToken, blockedTimeId, providerId) > 0;
+            if (deleted) await RegenerateOpenSlotsAsync(connection, transaction, providerId, cancellationToken);
+            return deleted;
+        }, cancellationToken);
 
     public Task<OfferedService?> CreateServiceAsync(Guid userId, string name, bool active, CancellationToken cancellationToken) =>
         MutateAsync(userId, async (connection, transaction, providerId) =>
@@ -105,6 +113,26 @@ public sealed class ProviderScheduleRepository(IOptions<DatabaseOptions> databas
         await using (var command = Command(connection, transaction, "SELECT id, name, active FROM services WHERE provider_id = $1 ORDER BY name", providerId))
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken)) while (await reader.ReadAsync(cancellationToken)) services.Add(new(reader.GetGuid(0), reader.GetString(1), reader.GetBoolean(2)));
         return new(slotLength, rules, blocked, services);
+    }
+
+    private async Task RegenerateOpenSlotsAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid providerId, CancellationToken cancellationToken)
+    {
+        var now = clock.GetCurrentInstant();
+        var timeZoneId = (string)(await ScalarAsync(connection, transaction, "SELECT tz FROM providers WHERE id = $1", cancellationToken, providerId))!;
+        var schedule = await ReadAsync(connection, transaction, providerId, cancellationToken);
+        var slots = SlotGenerator.Generate(now, timeZoneId, schedule.SlotLengthMinutes, schedule.WorkingHours, schedule.BlockedTimes);
+        var existingSlots = new List<PersistedSlot>();
+        await using (var command = Command(connection, transaction, "SELECT id, provider_id, start_at, status FROM slots WHERE provider_id = $1 AND start_at >= $2", providerId, now.ToDateTimeOffset()))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken)) while (await reader.ReadAsync(cancellationToken))
+            existingSlots.Add(new(reader.GetGuid(0), reader.GetGuid(1), Instant.FromDateTimeOffset(reader.GetFieldValue<DateTimeOffset>(2)), reader.GetString(3)));
+        var plan = SlotRegenerationPlan.Create(providerId, now, slots, existingSlots);
+
+        // The provider lock acquired by MutateAsync is held for this delete-and-insert sequence.
+        // Never delete a booked (or otherwise non-open) row: appointments retain their FK target.
+        foreach (var slotId in plan.OpenSlotIdsToDelete)
+            await ExecuteAsync(connection, transaction, "DELETE FROM slots WHERE id = $1 AND provider_id = $2 AND status = 'open'", cancellationToken, slotId, providerId);
+        foreach (var slot in plan.SlotsToInsert)
+            await ExecuteAsync(connection, transaction, "INSERT INTO slots (id, provider_id, start_at, end_at, status) VALUES ($1, $2, $3, $4, 'open') ON CONFLICT (provider_id, start_at) DO NOTHING", cancellationToken, Guid.NewGuid(), providerId, slot.StartsAt.ToDateTimeOffset(), slot.EndsAt.ToDateTimeOffset());
     }
 
     private static async Task<Guid?> ProviderIdAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid userId, CancellationToken cancellationToken)
