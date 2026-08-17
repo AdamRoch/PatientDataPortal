@@ -4,8 +4,10 @@ using PatientDataPortal.Api.Studies;
 using PatientDataPortal.Api.Imaging;
 using PatientDataPortal.Api.Reports;
 using PatientDataPortal.Api.Cine;
+using PatientDataPortal.Api.Sharing;
 using System.Security.Claims;
 using NodaTime;
+using System.Net.Mail;
 
 namespace PatientDataPortal.Api.Controllers;
 
@@ -16,6 +18,18 @@ namespace PatientDataPortal.Api.Controllers;
 [RequireVerifiedPatient]
 public sealed class VerifiedPatientResourcesController : ControllerBase
 {
+    [HttpPost("api/share")]
+    public async Task<ActionResult<MintedShare>> Share(
+        ShareCreateRequest request,
+        [FromServices] IShareService shares,
+        CancellationToken cancellationToken)
+    {
+        if (request.ResourceType is not ("image" or "report") || !IsEmailAddress(request.RecipientEmail))
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]> { ["share"] = ["resourceType must be image or report and recipientEmail must be a valid email address."] }));
+        var minted = await shares.MintAsync(UserId(), new ShareRequest(request.ResourceType, request.ResourceId, request.RecipientEmail), cancellationToken);
+        return minted is null ? NotFound() : Ok(minted);
+    }
+
     [HttpGet("api/studies")]
     public async Task<ActionResult<IReadOnlyList<StudyListItem>>> Studies(
         [FromServices] IStudyRepository studies,
@@ -100,6 +114,12 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
 
     private Task WriteGrantedAsync(IAuditWriter audit, Guid clipId, CancellationToken cancellationToken) => audit.WriteAsync(new AuditEvent(UserId().ToString(), "patient", "content_access_granted", "cine_clip", clipId.ToString(), "allowed"), cancellationToken);
     private Task WriteDeniedAsync(IAuditWriter audit, Guid clipId, CancellationToken cancellationToken) => audit.WriteDeniedAsync(new AuditEvent(UserId().ToString(), "patient", "content_access_denied", "cine_clip", clipId.ToString(), "denied"), cancellationToken);
+    private static bool IsEmailAddress(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        try { return new MailAddress(value).Address.Equals(value, StringComparison.OrdinalIgnoreCase); }
+        catch (FormatException) { return false; }
+    }
     private Guid UserId() => Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 }
 
@@ -109,3 +129,4 @@ public sealed record CineFrameUrlBatchRequest(int StartFrame, int Count)
     public const int MaximumCount = 50;
 }
 public sealed record CineFrameUrlBatchResponse(IReadOnlyList<SignedFrameUrl> Frames, DateTimeOffset ExpiresAt);
+public sealed record ShareCreateRequest(string ResourceType, Guid ResourceId, string RecipientEmail);
