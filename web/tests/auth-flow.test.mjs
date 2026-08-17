@@ -42,6 +42,17 @@ test("profile proxy verifies the patient session and forwards only to the authen
   assert.match(profile, /fetch\("\/api\/patient\/profile"/);
 });
 
+test("deletion requests are patient-authenticated and visible only through the admin route", async () => {
+  const patientRoute = await source("app/api/patient/deletion-request/route.ts");
+  const adminRoute = await source("app/api/admin/deletion-requests/route.ts");
+  const profile = await source("components/patient-profile.tsx");
+  const viewer = await source("components/deletion-requests-viewer.tsx");
+  assert.match(patientRoute, /auth\.getUser/); assert.match(patientRoute, /new URL\("\/api\/deletion-requests", apiUrl\)/);
+  assert.match(adminRoute, /auth\.getUser/); assert.match(adminRoute, /new URL\("\/api\/admin\/deletion-requests", apiUrl\)/);
+  assert.match(profile, /Request deletion of my data/); assert.match(profile, /\/api\/patient\/deletion-request/);
+  assert.match(viewer, /\/api\/admin\/deletion-requests/); assert.match(viewer, /Pending deletion requests/);
+});
+
 test("studies proxy and list keep study ownership on the server and show a clean empty state", async () => {
   const route = await source("app/api/patient/studies/route.ts");
   const studies = await source("components/studies-list.tsx");

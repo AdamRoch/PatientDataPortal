@@ -34,6 +34,19 @@ export function PatientProfile() {
     }
   }
 
+  async function requestDeletion() {
+    if (!window.confirm("Request deletion of your data? An administrator will review and fulfill this request.")) return;
+    setPending(true); setMessage(null);
+    try {
+      const { data } = await getSupabaseBrowserClient().auth.getSession();
+      if (!data.session?.access_token) throw new Error("Your session has ended. Please sign in again.");
+      const response = await fetch("/api/patient/deletion-request", { method: "POST", headers: { authorization: `Bearer ${data.session.access_token}` } });
+      if (!response.ok) throw new Error("We could not submit your deletion request.");
+      setMessage({ kind: "success", text: "Your deletion request has been submitted for administrator review." });
+    } catch (error) { setMessage({ kind: "error", text: error instanceof Error ? error.message : "We could not submit your deletion request." }); }
+    finally { setPending(false); }
+  }
+
   if (!profile) return <p aria-busy="true">Loading your profile…</p>;
 
   return <section aria-labelledby="profile-title">
@@ -46,6 +59,7 @@ export function PatientProfile() {
       {message && <p role={message.kind === "error" ? "alert" : "status"}>{message.text}</p>}
       <button disabled={pending} type="submit">{pending ? "Saving…" : "Save profile"}</button>
     </form>
+    <section aria-labelledby="deletion-title"><h3 id="deletion-title">Delete your data</h3><p>Request deletion of your portal data. This is reviewed and fulfilled by an administrator.</p><button disabled={pending} onClick={() => void requestDeletion()} type="button">Request deletion of my data</button></section>
   </section>;
 }
 
