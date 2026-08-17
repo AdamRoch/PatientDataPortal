@@ -9,6 +9,7 @@ using PatientDataPortal.Api.Security;
 using PatientDataPortal.Api.Identity;
 using PatientDataPortal.Api.Seeding;
 using PatientDataPortal.Api.Studies;
+using PatientDataPortal.Api.Cine;
 using Microsoft.AspNetCore.Authorization;
 using NodaTime;
 
@@ -84,6 +85,8 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IUserProfileRoleRepository, UserProfileRoleRepository>();
 builder.Services.AddScoped<IPatientProfileRepository, PatientProfileRepository>();
 builder.Services.AddScoped<IStudyRepository, StudyRepository>();
+builder.Services.AddScoped<ICineRepository, CineRepository>();
+builder.Services.AddScoped<ICineFrameUrlSigner, CineFrameUrlSigner>();
 builder.Services.AddScoped<IAuditWriter, AuditWriter>();
 builder.Services.AddScoped<IIdentityVerificationService, IdentityVerificationService>();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, RoleAuthorizationPolicyProvider>();

@@ -83,7 +83,7 @@ public sealed class ImagingSeedGenerator
         ExecuteAsync(connection, transaction, "INSERT INTO images (id, study_id, storage_path, thumbnail_path) VALUES (@id, @studyId, @path, @thumbnail) ON CONFLICT (id) DO UPDATE SET study_id = EXCLUDED.study_id, storage_path = EXCLUDED.storage_path, thumbnail_path = EXCLUDED.thumbnail_path", cancellationToken, ("id", image.Id), ("studyId", image.StudyId), ("path", image.Path), ("thumbnail", image.ThumbnailPath));
 
     private static Task UpsertClipAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, SeedClip clip, CancellationToken cancellationToken) =>
-        ExecuteAsync(connection, transaction, "INSERT INTO cine_clips (id, study_id, storage_path, frame_count) VALUES (@id, @studyId, @path, @frameCount) ON CONFLICT (id) DO UPDATE SET study_id = EXCLUDED.study_id, storage_path = EXCLUDED.storage_path, frame_count = EXCLUDED.frame_count", cancellationToken, ("id", clip.Id), ("studyId", clip.StudyId), ("path", clip.ManifestPath), ("frameCount", clip.FrameCount));
+        ExecuteAsync(connection, transaction, "INSERT INTO cine_clips (id, study_id, storage_path, frame_count, manifest) VALUES (@id, @studyId, @path, @frameCount, CAST(@manifest AS jsonb)) ON CONFLICT (id) DO UPDATE SET study_id = EXCLUDED.study_id, storage_path = EXCLUDED.storage_path, frame_count = EXCLUDED.frame_count, manifest = EXCLUDED.manifest", cancellationToken, ("id", clip.Id), ("studyId", clip.StudyId), ("path", clip.ManifestPath), ("frameCount", clip.FrameCount), ("manifest", clip.Manifest));
 
     private static Task UpsertReportAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, SeedReport report, CancellationToken cancellationToken) =>
         ExecuteAsync(connection, transaction, "INSERT INTO reports (id, patient_record_id, study_id, status, signed_at, signed_by, storage_path) VALUES (@id, @patientId, @studyId, @status, @signedAt, @signedBy, @path) ON CONFLICT (id) DO UPDATE SET patient_record_id = EXCLUDED.patient_record_id, study_id = EXCLUDED.study_id, status = EXCLUDED.status, signed_at = EXCLUDED.signed_at, signed_by = EXCLUDED.signed_by, storage_path = EXCLUDED.storage_path", cancellationToken, ("id", report.Id), ("patientId", report.PatientId), ("studyId", report.StudyId), ("status", report.Status), ("signedAt", report.SignedAt), ("signedBy", report.SignedBy), ("path", report.Path));
@@ -127,7 +127,7 @@ public sealed class ImagingSeedGenerator
     private sealed record SeedPatient(Guid Id, string Reference, DateOnly DateOfBirth, string Name);
     private sealed record SeedStudy(Guid Id, Guid PatientId, DateTimeOffset? PerformedAt, string Status, string Description);
     private sealed record SeedImage(Guid Id, Guid StudyId, string Path, string ThumbnailPath);
-    private sealed record SeedClip(Guid Id, Guid StudyId, string ManifestPath, int FrameCount);
+    private sealed record SeedClip(Guid Id, Guid StudyId, string ManifestPath, int FrameCount, string Manifest);
     private sealed record SeedReport(Guid Id, Guid PatientId, Guid StudyId, string Status, DateTimeOffset? SignedAt, Guid? SignedBy, string Path);
 
     private sealed class ImagingSeedPlan
@@ -180,7 +180,6 @@ public sealed class ImagingSeedGenerator
                 var frameCount = hundredFrameClips < 2 ? 100 : 20 + StableNumber($"frames:{clipId}", 41);
                 if (frameCount == 100) hundredFrameClips++;
                 var manifestPath = $"studies/{study.Id}/cine/{clipId}/manifest.json";
-                plan.Clips.Add(new SeedClip(clipId, study.Id, manifestPath, frameCount));
                 var frames = new List<object>(frameCount);
                 for (var frame = 1; frame <= frameCount; frame++)
                 {
@@ -189,7 +188,9 @@ public sealed class ImagingSeedGenerator
                     plan.ImagingAssets.Add(new SeedAsset(path, "image/jpeg", bytes));
                     frames.Add(new { path, bytes = bytes.Length });
                 }
-                plan.ImagingAssets.Add(new SeedAsset(manifestPath, "application/json", Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { frames, defaultFps = 12 }))));
+                var manifest = JsonSerializer.Serialize(new { frames, defaultFps = 12 });
+                plan.Clips.Add(new SeedClip(clipId, study.Id, manifestPath, frameCount, manifest));
+                plan.ImagingAssets.Add(new SeedAsset(manifestPath, "application/json", Encoding.UTF8.GetBytes(manifest)));
             }
         }
 
