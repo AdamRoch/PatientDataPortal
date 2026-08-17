@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Npgsql;
 using PatientDataPortal.Api.Configuration;
 
@@ -46,13 +47,28 @@ public sealed class BenchmarkScheduleSeedGenerator
         return plan with { VerifiedProviders = verifiedProviders, VerifiedSlots = verifiedSlots };
     }
 
-    private static IEnumerable<SeedProvider> Providers(BenchmarkScheduleSeedSummary plan)
+    public static async Task WriteK6FixtureAsync(string outputPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        var plan = DescribePlan();
+        var fixture = new BenchmarkK6Fixture(
+            Providers(plan).Select(provider => new BenchmarkK6Provider(
+                provider.Id,
+                provider.ServiceId,
+                Slots(provider, plan).Select(slot => slot.Id).ToArray())).ToArray());
+        var destination = Path.GetFullPath(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination) ?? ".");
+        await File.WriteAllTextAsync(destination, JsonSerializer.Serialize(fixture, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase }), cancellationToken);
+        Console.WriteLine($"benchmark-k6-fixture path={destination} providers={fixture.Providers.Length} slots={fixture.Providers.Sum(provider => provider.SlotIds.Length)}");
+    }
+
+    internal static IEnumerable<SeedProvider> Providers(BenchmarkScheduleSeedSummary plan)
     {
         for (var number = 1; number <= plan.Providers; number++)
             yield return new(IdFor($"provider:{number}"), IdFor($"provider-user:{number}"), IdFor($"provider-service:{number}"), $"Synthetic Benchmark Provider {number:00}");
     }
 
-    private static IEnumerable<SeedSlot> Slots(SeedProvider provider, BenchmarkScheduleSeedSummary plan)
+    internal static IEnumerable<SeedSlot> Slots(SeedProvider provider, BenchmarkScheduleSeedSummary plan)
     {
         var date = plan.FirstBusinessDay;
         for (var day = 0; day < plan.BusinessDays; day++)
@@ -100,9 +116,12 @@ public sealed class BenchmarkScheduleSeedGenerator
     private static string RequiredEnvironment(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
         ? value : throw new InvalidOperationException($"{name} must be set before running --seed-benchmark.");
 
-    private sealed record SeedProvider(Guid Id, Guid UserId, Guid ServiceId, string Name);
-    private sealed record SeedSlot(Guid Id, DateTimeOffset StartsAt, DateTimeOffset EndsAt);
+    internal sealed record SeedProvider(Guid Id, Guid UserId, Guid ServiceId, string Name);
+    internal sealed record SeedSlot(Guid Id, DateTimeOffset StartsAt, DateTimeOffset EndsAt);
 }
+
+public sealed record BenchmarkK6Fixture(BenchmarkK6Provider[] Providers);
+public sealed record BenchmarkK6Provider(Guid ProviderId, Guid ServiceId, Guid[] SlotIds);
 
 public sealed record BenchmarkScheduleSeedSummary(int Providers, int Slots, DateOnly FirstBusinessDay, int BusinessDays, int SlotsPerBusinessDay, int VerifiedProviders = 0, int VerifiedSlots = 0)
 {

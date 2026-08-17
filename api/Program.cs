@@ -45,6 +45,21 @@ if (args.Contains("--seed-benchmark", StringComparer.Ordinal))
     return;
 }
 
+var k6FixtureIndex = Array.IndexOf(args, "--write-benchmark-k6-fixture");
+if (k6FixtureIndex >= 0)
+{
+    if (k6FixtureIndex == args.Length - 1) throw new InvalidOperationException("--write-benchmark-k6-fixture requires an output path.");
+    await BenchmarkScheduleSeedGenerator.WriteK6FixtureAsync(args[k6FixtureIndex + 1]);
+    return;
+}
+
+if (args.Contains("--reset-benchmark-bookings", StringComparer.Ordinal))
+{
+    var summary = await new BenchmarkBookingResetter().ResetAsync();
+    Console.WriteLine(summary.ToLogLine());
+    return;
+}
+
 if (args.Contains("--describe-imaging-seed", StringComparer.Ordinal))
 {
     Console.WriteLine(ImagingSeedGenerator.DescribePlan().ToLogLine());
