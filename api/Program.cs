@@ -14,6 +14,7 @@ using PatientDataPortal.Api.Reports;
 using PatientDataPortal.Api.Cine;
 using PatientDataPortal.Api.Scheduling;
 using PatientDataPortal.Api.Sharing;
+using PatientDataPortal.Api.Deletion;
 using Microsoft.AspNetCore.Authorization;
 using NodaTime;
 
@@ -143,6 +144,7 @@ builder.Services.AddScoped<IPublicShareStorage, SupabasePublicShareStorage>();
 builder.Services.AddSingleton<IPublicShareFailureLimiter, PublicShareFailureLimiter>();
 builder.Services.AddScoped<IAuditWriter, AuditWriter>();
 builder.Services.AddScoped<IIdentityVerificationService, IdentityVerificationService>();
+builder.Services.AddScoped<IDeletionRequestService, DeletionRequestService>();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, RoleAuthorizationPolicyProvider>();
 builder.Services.AddScoped<IAuthorizationHandler, RoleAuthorizationHandler>();
 builder.Services.AddScoped<IAuthorizationHandler, VerifiedPatientAuthorizationHandler>();
