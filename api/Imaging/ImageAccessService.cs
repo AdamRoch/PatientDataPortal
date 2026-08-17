@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using Microsoft.Extensions.Options;
+using NodaTime;
 using Npgsql;
 using PatientDataPortal.Api.Configuration;
 using PatientDataPortal.Api.Security;
@@ -17,7 +18,8 @@ public sealed class ImageAccessService(
     IOptions<DatabaseOptions> databaseOptions,
     IOptions<SupabaseOptions> supabaseOptions,
     IHttpClientFactory httpClientFactory,
-    IAuditWriter auditWriter) : IImageAccessService
+    IAuditWriter auditWriter,
+    IClock clock) : IImageAccessService
 {
     private const int SignedUrlTtlSeconds = 300;
     private const string Bucket = "study-assets";
@@ -48,7 +50,8 @@ public sealed class ImageAccessService(
         if (string.IsNullOrWhiteSpace(signed.SignedUrl)) throw new InvalidOperationException("Storage returned an empty signed image URL.");
 
         await auditWriter.WriteAsync(new AuditEvent(accountId.ToString(), "patient", "content_access_granted", "image", imageId.ToString(), "allowed"), cancellationToken);
-        return new ImageAccess(imageId, storagePath.StudyId, new Uri(new Uri(options.Url.TrimEnd('/') + "/"), "storage/v1" + signed.SignedUrl).ToString(), DateTimeOffset.UtcNow.AddSeconds(SignedUrlTtlSeconds));
+        var expiresAt = (clock.GetCurrentInstant() + Duration.FromSeconds(SignedUrlTtlSeconds)).ToDateTimeOffset();
+        return new ImageAccess(imageId, storagePath.StudyId, new Uri(new Uri(options.Url.TrimEnd('/') + "/"), "storage/v1" + signed.SignedUrl).ToString(), expiresAt);
     }
 
     private async Task<OwnedImage?> FindOwnedCompletedImageAsync(Guid imageId, Guid accountId, CancellationToken cancellationToken)

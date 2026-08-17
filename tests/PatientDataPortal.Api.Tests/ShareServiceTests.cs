@@ -124,7 +124,7 @@ public sealed class ShareServiceTests
         if (!fixture.HasDatabase) return;
         var image = await fixture.SeedImageAsync(fixture.AccountId);
         var share = await fixture.InsertShareAsync(image, "live-public-token", "recipient@example.test", fixture.Clock.GetCurrentInstant().Plus(Duration.FromDays(90)));
-        var publicShares = new PublicShareService(Options.Create(new DatabaseOptions { ConnectionString = fixture.ConnectionString }));
+        var publicShares = new PublicShareService(Options.Create(new DatabaseOptions { ConnectionString = fixture.ConnectionString }), fixture.Clock);
 
         Assert.NotNull(await publicShares.FindActiveAsync("live-public-token", default));
         Assert.True(await fixture.Management().RevokeAsync(fixture.AccountId, share, default));
