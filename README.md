@@ -76,6 +76,19 @@ negative constraint and least-privilege checks through that role. For Supabase p
 the runner derives the pooler-decorated login from the URI parser; no credential is printed.
 Do not use the migration credential at runtime.
 
+Seed the synthetic imaging dataset after applying the schema:
+
+```sh
+dotnet run --project api -- --seed-imaging
+```
+
+The generator needs `DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_KEY`. It creates or
+uses the private `study-assets` bucket, then deterministically upserts 50 synthetic patient
+records, completed studies, scheduled/cancelled studies, images, thumbnails, and cine frames.
+It prints the generated counts and byte total, and refuses a plan at or above the 1 GB storage
+budget. Re-running it overwrites the same deterministic object paths and upserts the same IDs;
+it does not create additional seed rows or objects. These fixtures are synthetic only.
+
 CI runs this same migrated Postgres verification against a disposable `postgres:16-alpine`
 service, then runs the API test project with that database URL. Its verifier seeds a
 representative appointment, reminder, and share-link fixture and deliberately attempts

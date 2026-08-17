@@ -7,6 +7,7 @@ using PatientDataPortal.Api.Migrations;
 using PatientDataPortal.Api.Profiles;
 using PatientDataPortal.Api.Security;
 using PatientDataPortal.Api.Identity;
+using PatientDataPortal.Api.Seeding;
 using Microsoft.AspNetCore.Authorization;
 using NodaTime;
 
@@ -20,6 +21,19 @@ if (args.Contains("--verify-migrations", StringComparer.Ordinal))
 {
     var applicationConnectionString = await MigrationRunner.MigrateAsync();
     await MigrationVerifier.VerifyAsync(applicationConnectionString);
+    return;
+}
+
+if (args.Contains("--seed-imaging", StringComparer.Ordinal))
+{
+    var summary = await new ImagingSeedGenerator().SeedAsync();
+    Console.WriteLine(summary.ToLogLine());
+    return;
+}
+
+if (args.Contains("--describe-imaging-seed", StringComparer.Ordinal))
+{
+    Console.WriteLine(ImagingSeedGenerator.DescribePlan().ToLogLine());
     return;
 }
 
