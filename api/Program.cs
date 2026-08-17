@@ -5,6 +5,7 @@ using PatientDataPortal.Api.Observability;
 using PatientDataPortal.Api.Time;
 using PatientDataPortal.Api.Migrations;
 using PatientDataPortal.Api.Security;
+using PatientDataPortal.Api.Identity;
 using Microsoft.AspNetCore.Authorization;
 using NodaTime;
 
@@ -39,6 +40,8 @@ builder.Services.Configure<SupabaseOptions>(options =>
 });
 builder.Services.Configure<DatabaseOptions>(options =>
     options.ConnectionString = builder.Configuration["DATABASE_URL"] ?? string.Empty);
+builder.Services.Configure<IdentityVerificationOptions>(options =>
+    options.HmacKey = builder.Configuration["IDENTITY_HMAC_KEY"] ?? string.Empty);
 builder.Services.Configure<EmailOptions>(options =>
 {
     options.DeliveryMode = builder.Configuration["EMAIL_DELIVERY_MODE"] ?? "log";
@@ -57,13 +60,15 @@ builder.Services.AddHttpClient<ISupabaseJwtVerifier, SupabaseJwtVerifier>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IUserProfileRoleRepository, UserProfileRoleRepository>();
 builder.Services.AddScoped<IAuditWriter, AuditWriter>();
+builder.Services.AddScoped<IIdentityVerificationService, IdentityVerificationService>();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, RoleAuthorizationPolicyProvider>();
 builder.Services.AddScoped<IAuthorizationHandler, RoleAuthorizationHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, VerifiedPatientAuthorizationHandler>();
 builder.Services
     .AddAuthentication(SupabaseAuthenticationHandler.SchemeName)
     .AddScheme<SupabaseAuthenticationOptions, SupabaseAuthenticationHandler>(
         SupabaseAuthenticationHandler.SchemeName, _ => { });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options => options.AddPolicy(RequireVerifiedPatientAttribute.PolicyName, policy => policy.AddRequirements(new VerifiedPatientRequirement())));
 builder.Services.AddScoped<HealthService>();
 builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
 builder.Services.AddScoped<EmailOutboxWorker>();

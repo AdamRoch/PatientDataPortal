@@ -22,12 +22,13 @@ public sealed class SupabaseAuthenticationHandler(
         var header = Request.Headers.Authorization.ToString();
         if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return AuthenticateResult.NoResult();
 
-        var userId = await verifier.VerifyAsync(header[7..].Trim(), Context.RequestAborted);
-        if (userId is null) return AuthenticateResult.Fail("The bearer token is invalid or expired.");
+        var user = await verifier.VerifyAsync(header[7..].Trim(), Context.RequestAborted);
+        if (user is null) return AuthenticateResult.Fail("The bearer token is invalid or expired.");
 
         var identity = new ClaimsIdentity(SchemeName);
-        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, userId.Value.ToString()));
-        identity.AddClaim(new Claim("sub", userId.Value.ToString()));
+        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()));
+        identity.AddClaim(new Claim("sub", user.UserId.ToString()));
+        identity.AddClaim(new Claim("email_verified", user.IsEmailVerified ? "true" : "false"));
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName));
     }
 

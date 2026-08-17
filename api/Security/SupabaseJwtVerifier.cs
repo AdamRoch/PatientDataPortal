@@ -8,12 +8,12 @@ namespace PatientDataPortal.Api.Security;
 
 public interface ISupabaseJwtVerifier
 {
-    Task<Guid?> VerifyAsync(string token, CancellationToken cancellationToken);
+    Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken);
 }
 
 public sealed class SupabaseJwtVerifier(HttpClient client, IOptions<SupabaseOptions> options) : ISupabaseJwtVerifier
 {
-    public async Task<Guid?> VerifyAsync(string token, CancellationToken cancellationToken)
+    public async Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken)
     {
         var configuration = options.Value;
         if (string.IsNullOrWhiteSpace(configuration.Url) || string.IsNullOrWhiteSpace(configuration.AnonKey)) return null;
@@ -26,8 +26,10 @@ public sealed class SupabaseJwtVerifier(HttpClient client, IOptions<SupabaseOpti
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var user = await JsonSerializer.DeserializeAsync<SupabaseUser>(stream, cancellationToken: cancellationToken);
-        return user is not null && Guid.TryParse(user.Id, out var userId) ? userId : null;
+        return user is not null && Guid.TryParse(user.Id, out var userId)
+            ? new AuthenticatedUser(userId, user.EmailConfirmedAt is not null)
+            : null;
     }
 
-    private sealed record SupabaseUser(string? Id);
+    private sealed record SupabaseUser(string? Id, DateTimeOffset? EmailConfirmedAt);
 }
