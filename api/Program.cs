@@ -13,6 +13,7 @@ using PatientDataPortal.Api.Imaging;
 using PatientDataPortal.Api.Reports;
 using PatientDataPortal.Api.Cine;
 using PatientDataPortal.Api.Scheduling;
+using PatientDataPortal.Api.Sharing;
 using Microsoft.AspNetCore.Authorization;
 using NodaTime;
 
@@ -67,6 +68,8 @@ builder.Services.Configure<SupabaseOptions>(options =>
 });
 builder.Services.Configure<DatabaseOptions>(options =>
     options.ConnectionString = builder.Configuration["DATABASE_URL"] ?? string.Empty);
+builder.Services.Configure<ShareOptions>(options =>
+    options.PublicUrl = builder.Configuration["APP_URL"] ?? "http://localhost:3000");
 builder.Services.Configure<IdentityVerificationOptions>(options =>
     options.HmacKey = builder.Configuration["IDENTITY_HMAC_KEY"] ?? string.Empty);
 builder.Services.Configure<EmailOptions>(options =>
@@ -95,6 +98,8 @@ builder.Services.AddScoped<IReportStorage, SupabaseReportStorage>();
 builder.Services.AddScoped<ICineRepository, CineRepository>();
 builder.Services.AddScoped<ICineFrameUrlSigner, CineFrameUrlSigner>();
 builder.Services.AddScoped<IProviderScheduleRepository, ProviderScheduleRepository>();
+builder.Services.AddSingleton<IShareTokenGenerator, ShareTokenGenerator>();
+builder.Services.AddScoped<IShareService, ShareService>();
 builder.Services.AddScoped<IAuditWriter, AuditWriter>();
 builder.Services.AddScoped<IIdentityVerificationService, IdentityVerificationService>();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, RoleAuthorizationPolicyProvider>();
