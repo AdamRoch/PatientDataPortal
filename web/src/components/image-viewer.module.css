@@ -2,7 +2,17 @@
 .toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: .5rem; }
 .toolbar button { background: var(--surface); border: 1px solid #8ca8ae; border-radius: .35rem; color: var(--ink); cursor: pointer; padding: .5rem .75rem; }
 .toolbar button:focus-visible { outline: 3px solid #1e7a91; outline-offset: 2px; }
+.shareForm { align-items: end; background: var(--surface); border: 1px solid #c3d2d5; border-radius: .5rem; display: flex; flex-wrap: wrap; gap: .75rem; padding: 1rem; }
+.shareForm label { display: grid; font-weight: 700; gap: .35rem; }
+.shareForm input { border: 1px solid #8ca8ae; border-radius: .35rem; min-height: 2.5rem; padding: .5rem; }
+.shareForm button { background: #176e82; border: 1px solid #176e82; border-radius: .35rem; color: #fff; cursor: pointer; min-height: 2.5rem; padding: .5rem .75rem; }
+.shareForm p { flex-basis: 100%; margin: 0; }
 .canvas { align-items: center; background: #10252a; border-radius: .5rem; cursor: grab; display: flex; height: min(70vh, 42rem); justify-content: center; overflow: hidden; touch-action: none; user-select: none; }
 .canvas:active { cursor: grabbing; }
 .image { max-height: 100%; max-width: 100%; transform-origin: center; will-change: transform; }
 .error { color: #a32424; }
+
+@media (max-width: 480px) {
+  .shareForm { align-items: stretch; display: grid; }
+  .shareForm input, .shareForm button { width: 100%; }
+}
