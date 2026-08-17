@@ -128,6 +128,88 @@ The Supabase buckets `study-assets` and `reports` are private. The Resend free t
 free tier includes roughly 1 GB storage and 5 GB/month egress; see `INFRA-SETUP.md` for the
 human-owned domain, DNS, SMTP, and dashboard steps.
 
+## Benchmark harness
+
+The committed k6 scenarios live in `infra/k6/`. They measure the API-plus-signed-Storage
+path for one image, cine time to first frame, a full 100-frame cine load, open-slot queries,
+and appointment booking. Each scenario is intentionally fixed to the assessment profile of
+20--50 VUs for 60 seconds and prints its p95. The target guard is deliberate: `k6` will not
+send traffic until `ALLOW_BENCHMARK_TARGET=1` is set for an approved, synthetic benchmark
+environment. Do not aim this harness at production or a system containing real patient data.
+
+First migrate and seed that dedicated environment, then create a fixture containing the
+deterministic benchmark provider, service, and slot IDs:
+
+```sh
+dotnet run --project api -- --seed-benchmark
+./infra/k6/prepare-booking-fixture.sh
+```
+
+Set an access token for the seeded, confirmed synthetic patient and IDs from that patient's
+seeded records. `BASE_URL` is the API base URL, not the browser URL. A 20 VU run looks like:
+
+```sh
+export ALLOW_BENCHMARK_TARGET=1 BASE_URL=https://approved-api.example
+export PATIENT_ACCESS_TOKEN=replace-with-synthetic-patient-token
+export IMAGE_ID=replace-with-owned-image-id CINE_ID=replace-with-owned-100-frame-cine-id
+export PROVIDER_ID=replace-with-benchmark-provider-id RUN_ID=run-20260816-a
+k6 run infra/k6/image-load.js
+k6 run infra/k6/cine-ttff.js
+k6 run infra/k6/cine-full-load.js
+k6 run infra/k6/slot-query.js
+k6 run -e BOOKING_FIXTURE=infra/k6/artifacts/benchmark-k6-fixture.json infra/k6/booking.js
+```
+
+Use `VUS=50` only when the approved run calls for the upper bound; `DURATION` must remain
+`60s`. The booking run consumes slots. Before every rerun, reset the dedicated synthetic
+benchmark environment and recreate its deterministic schedule:
+
+```sh
+./infra/k6/reset-and-reseed-bookings.sh
+./infra/k6/prepare-booking-fixture.sh
+```
+
+The reset command deletes appointments, reminder-outbox rows, and appointment events only for
+the ten deterministic benchmark providers, then reopens their slots. It is not a general data
+cleanup command and must never be run against real patient data.
+
+### Cine egress budget
+
+`cine-full-load.js` logs `cine-egress-estimate` after every run. Its conservative model is
+`completed iterations × 100 frames × 40 KiB`, or **3.91 MiB per full cine iteration**, compared
+with Supabase's 5 GiB/month free-tier cap. For example, 20 VUs completing one cine each moves
+about 78.13 MiB (1.53% of the cap); 50 concurrent first iterations move about 195.31 MiB
+(3.81%). Count the logged figure across retries and run heavy cine benchmarks before the eval
+window opens, so free-tier throttling cannot distort the demo measurements. `CINE_FRAME_BYTES`
+and `CINE_FRAME_COUNT` can be set when the actual fixture differs, but the report must retain
+the values used.
+
+### Browser timing trace
+
+k6 cannot establish when pixels appear or whether playback misses its cadence. For each
+approved browser run, use Chrome DevTools against the deployed web app and retain the exported
+Performance trace (`.json.gz`) with the k6 summary:
+
+1. Sign in as the synthetic patient, open an owned 100-frame cine clip, and open DevTools.
+2. In Network, select **Fast 3G** (1.6 Mbps down, 750 Kbps up, 150 ms RTT), disable cache, and
+   preserve the network log. Never use a real-patient session.
+3. In Performance, enable screenshots, click Record, reload the cine page, wait until the UI
+   shows every frame is ready, play for at least ten seconds at 10, 12, and 15 FPS, then stop
+   and export the trace.
+4. Record first rendered frame from the first screenshot containing the cine image, full cine
+   readiness from the final frame-storage request/load event, and playback cadence by comparing
+   successive rendered-frame timestamps to the selected FPS interval (100, 83.3, or 66.7 ms).
+   Count intervals materially longer than twice the selected interval as dropped frames.
+
+Keep the URL, commit SHA, synthetic fixture IDs, throttling profile, trace filename, p95 summary,
+and the k6 egress line together. This is the browser-side evidence for PRD §9; it complements,
+but does not replace, the protocol-level k6 result.
+
+At this branch's creation, the public deployment is E0-only. These scripts have only static and
+local validation until current main deploys the full image, cine, and scheduling product. Do not
+claim deployed acceptance, p95 compliance, or a Supabase egress observation from this change
+alone.
+
 Email delivery defaults to `EMAIL_DELIVERY_MODE=log`, which records only the provider-safe
 result and the idempotency key. The narrow Resend integration test is opt-in and sends one
 generic, non-PHI delivery check only when all three environment values are supplied:
