@@ -42,6 +42,22 @@ test("profile proxy verifies the patient session and forwards only to the authen
   assert.match(profile, /fetch\("\/api\/patient\/profile"/);
 });
 
+test("studies proxy and list keep study ownership on the server and show a clean empty state", async () => {
+  const route = await source("app/api/patient/studies/route.ts");
+  const studies = await source("components/studies-list.tsx");
+  const imaging = await source("app/portal/imaging/page.tsx");
+
+  assert.match(route, /auth\.getUser/);
+  assert.match(route, /new URL\("\/api\/studies", apiUrl\)/);
+  assert.match(route, /cache: "no-store"/);
+  assert.doesNotMatch(route, /patientRecordId/);
+  assert.match(studies, /fetch\("\/api\/patient\/studies"/);
+  assert.match(studies, /No completed studies are available yet\./);
+  assert.match(studies, /study\.description/);
+  assert.match(studies, /study\.performedAt/);
+  assert.match(imaging, /<StudiesList \/>/);
+});
+
 test("identity verification keeps care navigation behind verified patient state", async () => {
   const identity = await source("components/identity-verification.tsx");
   const route = await source("app/api/patient/identity/route.ts");

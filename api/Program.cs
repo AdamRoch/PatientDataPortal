@@ -8,6 +8,7 @@ using PatientDataPortal.Api.Profiles;
 using PatientDataPortal.Api.Security;
 using PatientDataPortal.Api.Identity;
 using PatientDataPortal.Api.Seeding;
+using PatientDataPortal.Api.Studies;
 using Microsoft.AspNetCore.Authorization;
 using NodaTime;
 
@@ -75,6 +76,7 @@ builder.Services.AddHttpClient<ISupabaseJwtVerifier, SupabaseJwtVerifier>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IUserProfileRoleRepository, UserProfileRoleRepository>();
 builder.Services.AddScoped<IPatientProfileRepository, PatientProfileRepository>();
+builder.Services.AddScoped<IStudyRepository, StudyRepository>();
 builder.Services.AddScoped<IAuditWriter, AuditWriter>();
 builder.Services.AddScoped<IIdentityVerificationService, IdentityVerificationService>();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, RoleAuthorizationPolicyProvider>();
