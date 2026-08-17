@@ -30,3 +30,13 @@ test("cine player renders an unavailable manifest frame as a gap without stoppin
   assert.match(player, /Frame \{currentFrame \+ 1\} is unavailable \(gap\)\. Playback continues across the remaining frames\./);
   assert.match(player, /isCurrentFrameUnavailable/);
 });
+
+test("cine player loads and paints the first frame before downloading remaining batches", async () => {
+  const player = await readFile(playerPath, "utf8");
+
+  assert.match(player, /await requestFrameUrls\(0, 1\)/);
+  assert.match(player, /setLoadingRemainingFrames\(true\)/);
+  assert.match(player, /void \(async \(\) => \{/);
+  assert.match(player, /for \(let start = 1; start < access\.manifest\.frames\.length; start \+= FRAME_URL_BATCH_SIZE\)/);
+  assert.match(player, /Loading remaining frames: \$\{readyFrameCount\} of \$\{frameCount\} ready\./);
+});

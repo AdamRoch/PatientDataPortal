@@ -24,6 +24,10 @@ npm run typecheck
 
 The cine player defaults to the clip's manifest FPS when it is 10, 12, or 15 FPS; otherwise it defaults to 12 FPS. This keeps default playback within the intended 10–15 FPS range.
 
+### Slow-network verification
+
+Use Chrome DevTools' **Fast 3G** network preset (1.6 Mbps download, 750 Kbps upload, 150 ms RTT) when checking cine progressive loading. Open a 100-frame clip with the preset enabled: frame 1 should paint first, the player should show its loading status, and the transport controls should remain usable while later batches download.
+
 All API code obtains the current time from NodaTime's injected `IClock`. The clock check is
 also a CI gate; test code uses `NodaTime.Testing.FakeClock` so expiry behavior is deterministic.
 

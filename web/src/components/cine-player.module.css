@@ -10,5 +10,6 @@
 .fpsLabel { display: grid; font-size: .9rem; gap: .2rem; }
 .error { color: #a32424; }
 .gap { color: #fff; max-width: 26rem; padding: 1rem; text-align: center; }
+.loading { color: var(--muted); font-size: .9rem; margin: 0; }
 @media (max-width: 42rem) { .controls { grid-template-columns: repeat(3, 1fr); } .scrubberLabel, .fpsLabel { grid-column: span 3; } .controls button { min-width: 0; } }
 @media (orientation: landscape) and (max-height: 34rem) { .player[data-orientation="landscape"] { gap: .5rem; } .player[data-orientation="landscape"] .canvas { min-height: 9rem; } .player[data-orientation="landscape"] .frame { max-height: 48vh; } }
