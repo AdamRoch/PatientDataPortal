@@ -97,17 +97,26 @@ test("identity verification keeps care navigation behind verified patient state"
 test("reports expose signed-only metadata and a phone-width PDF viewer", async () => {
   const listRoute = await source("app/api/patient/reports/route.ts");
   const viewRoute = await source("app/api/patient/reports/[reportId]/view/route.ts");
+  const shareRoute = await source("app/api/patient/reports/[reportId]/share/route.ts");
   const viewer = await source("components/reports-viewer.tsx");
   const styles = await source("components/reports-viewer.module.css");
 
   assert.match(listRoute, /auth\.getUser/);
   assert.match(listRoute, /new URL\("\/api\/reports", apiUrl\)/);
   assert.match(viewRoute, /encodeURIComponent\(reportId\)/);
+  assert.match(shareRoute, /auth\.getUser/);
+  assert.match(shareRoute, /new URL\("\/api\/share", apiUrl\)/);
+  assert.match(shareRoute, /resourceType: "report"/);
+  assert.match(shareRoute, /cache: "no-store"/);
   assert.match(viewer, /Loading your signed reports/);
   assert.match(viewer, /No signed reports are available yet/);
   assert.match(viewer, /onLoad=\{\(\) => setPdfLoading\(false\)\}/);
   assert.match(viewer, /onError=\{\(\) => \{ setPdfLoading\(false\); setError\("view"\); \}\}/);
   assert.match(viewer, /We could not open that report/);
+  assert.match(viewer, /\/api\/patient\/reports\/\$\{encodeURIComponent\(reportId\)\}\/share/);
+  assert.match(viewer, /Share report/);
+  assert.match(viewer, /Recipient email/);
+  assert.match(viewer, /Secure link sent\. It expires in 48 hours\./);
   assert.match(styles, /width: 100%/);
   assert.match(styles, /@media \(max-width: 480px\)/);
   assert.doesNotMatch(viewer, /preliminary/);
