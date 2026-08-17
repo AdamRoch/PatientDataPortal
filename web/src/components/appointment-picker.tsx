@@ -37,7 +37,7 @@ export function AppointmentPicker() {
     }, new Map());
   }, [slots]);
 
-  return <section className={styles.picker} aria-labelledby="appointment-picker-heading">
+  return <section id="appointment-picker" className={styles.picker} aria-labelledby="appointment-picker-heading">
     <h2 id="appointment-picker-heading">Book an appointment</h2>
     <p className={styles.zone}>Times shown in {zone}.</p>
     {error ? <p role="alert">We could not load appointment availability. Please try again later.</p> : null}
