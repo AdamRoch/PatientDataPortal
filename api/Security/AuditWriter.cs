@@ -14,15 +14,18 @@ public sealed record AuditEvent(
 
 public interface IAuditWriter
 {
-    Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => WriteDeniedAsync(auditEvent, cancellationToken);
+    Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken);
     Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken);
 }
 
 public sealed class AuditWriter(IOptions<DatabaseOptions> databaseOptions, ILogger<AuditWriter> logger) : IAuditWriter
 {
-    public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => WriteAsync(auditEvent with { Result = "denied" }, cancellationToken);
+    public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => WriteAsync(auditEvent, auditEvent.Result, cancellationToken);
 
-    public async Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken)
+    public async Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken)
+        => await WriteAsync(auditEvent, "denied", cancellationToken);
+
+    private async Task WriteAsync(AuditEvent auditEvent, string result, CancellationToken cancellationToken)
     {
         var connectionString = databaseOptions.Value.ConnectionString;
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -44,7 +47,7 @@ public sealed class AuditWriter(IOptions<DatabaseOptions> databaseOptions, ILogg
             command.Parameters.AddWithValue(auditEvent.Action);
             command.Parameters.AddWithValue(auditEvent.TargetType);
             command.Parameters.AddWithValue(auditEvent.TargetReference);
-            command.Parameters.AddWithValue(auditEvent.Result);
+            command.Parameters.AddWithValue(result);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is NpgsqlException or ArgumentException)
