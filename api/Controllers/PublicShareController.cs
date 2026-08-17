@@ -8,10 +8,10 @@ namespace PatientDataPortal.Api.Controllers;
 public sealed class PublicShareController : ControllerBase
 {
     [HttpGet("api/public/share/{token}")]
-    public async Task<IActionResult> View(string token, [FromServices] IPublicShareService shares, [FromServices] IPublicShareFailureLimiter failures, CancellationToken cancellationToken)
+    public async Task<IActionResult> View(string token, [FromServices] IPublicShareService shares, [FromServices] IPublicShareFailureLimiter failures, [FromServices] IAuditWriter audit, CancellationToken cancellationToken)
     {
         var share = await shares.FindActiveAsync(token, cancellationToken);
-        if (share is null) return Unavailable(failures);
+        if (share is null) return await UnavailableAsync(failures, audit, cancellationToken);
         SetPrivacyHeaders();
         return Ok(new PublicShareView(share.ResourceType));
     }
@@ -20,7 +20,7 @@ public sealed class PublicShareController : ControllerBase
     public async Task<IActionResult> Content(string token, [FromQuery] string? disposition, [FromServices] IPublicShareService shares, [FromServices] IPublicShareStorage storage, [FromServices] IPublicShareFailureLimiter failures, [FromServices] IAuditWriter audit, CancellationToken cancellationToken)
     {
         var share = await shares.FindActiveAsync(token, cancellationToken);
-        if (share is null) return Unavailable(failures);
+        if (share is null) return await UnavailableAsync(failures, audit, cancellationToken);
 
         await using var content = await storage.OpenReadAsync(share, cancellationToken);
         if (content is null) return NotFound();
@@ -34,8 +34,9 @@ public sealed class PublicShareController : ControllerBase
         return new EmptyResult();
     }
 
-    private IActionResult Unavailable(IPublicShareFailureLimiter failures)
+    private async Task<IActionResult> UnavailableAsync(IPublicShareFailureLimiter failures, IAuditWriter audit, CancellationToken cancellationToken)
     {
+        await audit.WriteDeniedAsync(new AuditEvent(null, "anonymous", "shared_content_denied", "share_link", "unavailable", "denied"), cancellationToken);
         SetPrivacyHeaders();
         return failures.RecordFailure(RequestKey()) ? NotFound() : StatusCode(StatusCodes.Status429TooManyRequests);
     }
