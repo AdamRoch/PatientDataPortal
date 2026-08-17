@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const source = (file) => readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
+
+test("registration requests Supabase email confirmation and tells the patient to check their inbox", async () => {
+  const card = await source("components/auth-card.tsx");
+
+  assert.match(card, /supabase\.auth\.signUp/);
+  assert.match(card, /emailRedirectTo: `\$\{window\.location\.origin\}\//);
+  assert.match(card, /Check your inbox to confirm your email/);
+});
+
+test("the portal requires both a current session and a confirmed email", async () => {
+  const portal = await source("app/portal/page.tsx");
+
+  assert.match(portal, /supabase\.auth\.getSession/);
+  assert.match(portal, /hasVerifiedEmail\(data\.session\.user\.email_confirmed_at\)/);
+  assert.match(portal, /event === "SIGNED_OUT"/);
+  assert.match(portal, /reason=session-expired/);
+});
+
+test("patient session endpoint rejects a request without a bearer token before reading configuration", async () => {
+  const route = await source("app/api/patient/session/route.ts");
+  const authGuard = route.indexOf('if (!authorization?.startsWith("Bearer "))');
+  const configRead = route.indexOf("process.env.NEXT_PUBLIC_SUPABASE_URL");
+
+  assert.ok(authGuard >= 0);
+  assert.ok(configRead > authGuard);
+  assert.match(route, /status: 401/);
+});
