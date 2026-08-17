@@ -181,9 +181,12 @@ public sealed class PublicShareEndpointTests
 
     private sealed class FakeAudit : IAuditWriter
     {
-        public List<AuditEvent> Events { get; } = [];
-        public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { Events.Add(auditEvent); return Task.CompletedTask; }
-        public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { Events.Add(auditEvent); return Task.CompletedTask; }
-        public Task WriteAllowedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { Events.Add(auditEvent); return Task.CompletedTask; }
+        private readonly object gate = new();
+        private readonly List<AuditEvent> events = [];
+        public IReadOnlyList<AuditEvent> Events { get { lock (gate) return events.ToArray(); } }
+        public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => WriteAsync(auditEvent);
+        public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => WriteAsync(auditEvent);
+        public Task WriteAllowedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => WriteAsync(auditEvent);
+        private Task WriteAsync(AuditEvent auditEvent) { lock (gate) events.Add(auditEvent); return Task.CompletedTask; }
     }
 }
