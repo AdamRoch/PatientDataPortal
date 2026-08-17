@@ -31,9 +31,13 @@ public static class MigrationVerifier
         await ExecuteAsync(connection, transaction, "INSERT INTO blocked_times (id, provider_id, blocked_range) VALUES (@id, @provider, tstzrange(@start_at, @end_at, '[)'))", cancellationToken, ("id", Guid.NewGuid()), ("provider", provider), ("start_at", now.AddHours(2)), ("end_at", now.AddHours(3)));
         await ExecuteAsync(connection, transaction, "INSERT INTO services (id, provider_id, name) VALUES (@service, @provider, 'Verification')", cancellationToken, ("service", service), ("provider", provider));
         await ExecuteAsync(connection, transaction, "INSERT INTO slots (id, provider_id, start_at, end_at, status) VALUES (@slot, @provider, @start_at, @end_at, 'booked')", cancellationToken, ("slot", slot), ("provider", provider), ("start_at", now), ("end_at", now.AddMinutes(30)));
+        await ExecuteAsync(connection, transaction, "INSERT INTO slots (id, provider_id, start_at, end_at, status) VALUES (@open, @provider, @open_start, @open_end, 'open'), (@blocked, @provider, @blocked_start, @blocked_end, 'blocked'), (@past, @provider, @past_start, @past_end, 'open')", cancellationToken,
+            ("open", Guid.NewGuid()), ("provider", provider), ("open_start", now.AddHours(4)), ("open_end", now.AddHours(4.5)), ("blocked", Guid.NewGuid()), ("blocked_start", now.AddHours(5)), ("blocked_end", now.AddHours(5.5)), ("past", Guid.NewGuid()), ("past_start", now.AddHours(-1)), ("past_end", now.AddMinutes(-30)));
         await ExecuteAsync(connection, transaction, "INSERT INTO appointments (id, slot_id, patient_user_id, provider_id, service_id, start_at, status, idempotency_key) VALUES (@appointment, @slot, @patient, @provider, @service, @start_at, 'confirmed', 'migration-verifier-1')", cancellationToken, ("appointment", appointment), ("slot", slot), ("patient", patient), ("provider", provider), ("service", service), ("start_at", now));
         await ExecuteAsync(connection, transaction, "INSERT INTO email_outbox (id, appointment_id, schedule_version, interval, kind, payload, due_at, status, idempotency_key) VALUES (@id, @appointment, 1, '24h', 'reminder', '{}'::jsonb, @due_at, 'pending', 'migration-verifier-reminder-1')", cancellationToken, ("id", Guid.NewGuid()), ("appointment", appointment), ("due_at", now));
         await ExecuteAsync(connection, transaction, "INSERT INTO share_links (id, token_hash, resource_type, resource_id, recipient_email, expires_at) VALUES (@id, 'migration-verifier-token', 'report', @record, 'recipient@example.test', @expires_at)", cancellationToken, ("id", Guid.NewGuid()), ("record", record), ("expires_at", now.AddHours(1)));
+
+        await VerifyOpenSlotDiscoveryAsync(connection, transaction, provider, now, cancellationToken);
 
         await ExpectUniqueViolationAsync(connection, transaction, "INSERT INTO appointments (id, slot_id, patient_user_id, provider_id, service_id, start_at, status, idempotency_key) VALUES (@id, @slot, @patient, @provider, @service, @start_at, 'requested', 'migration-verifier-2')", cancellationToken, ("id", Guid.NewGuid()), ("slot", slot), ("patient", patient), ("provider", provider), ("service", service), ("start_at", now));
         await ExpectUniqueViolationAsync(connection, transaction, "INSERT INTO email_outbox (id, appointment_id, schedule_version, interval, kind, payload, due_at, status, idempotency_key) VALUES (@id, @appointment, 1, '24h', 'reminder', '{}'::jsonb, @due_at, 'pending', 'migration-verifier-reminder-2')", cancellationToken, ("id", Guid.NewGuid()), ("appointment", appointment), ("due_at", now));
@@ -50,6 +54,32 @@ public static class MigrationVerifier
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         foreach (var (name, value) in parameters) command.Parameters.AddWithValue(name, value);
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task VerifyOpenSlotDiscoveryAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid provider, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        const string discoverySql = "SELECT id FROM slots WHERE provider_id = @provider AND status = 'open' AND start_at >= @from AND start_at < @to ORDER BY start_at";
+        await using (var command = new NpgsqlCommand(discoverySql, connection, transaction))
+        {
+            command.Parameters.AddWithValue("provider", provider);
+            command.Parameters.AddWithValue("from", now.AddHours(1));
+            command.Parameters.AddWithValue("to", now.AddHours(6));
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            var count = 0;
+            while (await reader.ReadAsync(cancellationToken)) count++;
+            if (count != 1) throw new InvalidOperationException("Open-slot discovery must exclude booked, blocked, and past slots.");
+        }
+
+        await ExecuteAsync(connection, transaction, "SET LOCAL enable_seqscan = off", cancellationToken);
+        await using var explain = new NpgsqlCommand($"EXPLAIN (COSTS OFF) {discoverySql}", connection, transaction);
+        explain.Parameters.AddWithValue("provider", provider);
+        explain.Parameters.AddWithValue("from", now.AddHours(1));
+        explain.Parameters.AddWithValue("to", now.AddHours(6));
+        await using var explainReader = await explain.ExecuteReaderAsync(cancellationToken);
+        var plan = new List<string>();
+        while (await explainReader.ReadAsync(cancellationToken)) plan.Add(explainReader.GetString(0));
+        if (!plan.Any(line => line.Contains("slots_provider_open_start_idx", StringComparison.Ordinal)))
+            throw new InvalidOperationException("Open-slot discovery must use slots_provider_open_start_idx.");
     }
 
     private static async Task ExpectUniqueViolationAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string sql, CancellationToken cancellationToken, params (string Name, object Value)[] parameters)

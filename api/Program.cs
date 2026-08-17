@@ -98,6 +98,7 @@ builder.Services.AddScoped<IReportStorage, SupabaseReportStorage>();
 builder.Services.AddScoped<ICineRepository, CineRepository>();
 builder.Services.AddScoped<ICineFrameUrlSigner, CineFrameUrlSigner>();
 builder.Services.AddScoped<IProviderScheduleRepository, ProviderScheduleRepository>();
+builder.Services.AddScoped<IProviderDiscoveryRepository, ProviderDiscoveryRepository>();
 builder.Services.AddSingleton<IShareTokenGenerator, ShareTokenGenerator>();
 builder.Services.AddScoped<IShareService, ShareService>();
 builder.Services.AddScoped<IAuditWriter, AuditWriter>();
