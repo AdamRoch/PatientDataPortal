@@ -15,6 +15,7 @@ using PatientDataPortal.Api.Cine;
 using PatientDataPortal.Api.Scheduling;
 using PatientDataPortal.Api.Sharing;
 using PatientDataPortal.Api.Deletion;
+using PatientDataPortal.Api.Audit;
 using Microsoft.AspNetCore.Authorization;
 using NodaTime;
 
@@ -157,6 +158,7 @@ builder.Services.AddScoped<HealthService>();
 builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
 builder.Services.AddScoped<EmailOutboxWorker>();
 builder.Services.AddScoped<IEmailOutboxStatusRepository, EmailOutboxStatusRepository>();
+builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 builder.Services.AddSingleton<IClock>(SystemClock.Instance);
 builder.Services.AddScoped<LockoutWindow>();
 
