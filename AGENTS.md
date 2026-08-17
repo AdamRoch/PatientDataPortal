@@ -4,6 +4,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Add durable project-specific notes here as they are discovered through real work.
 - The root build and checks are documented in `README.md`; the architecture choices live in `PRD.md` and `ADR/`.
+- Identity claim security and recovery behavior is implemented in `api/Identity/IdentityVerificationService.cs`; run the two root `scripts/check-*.sh` checks after changing it.
 
 ## Maintaining this file
 

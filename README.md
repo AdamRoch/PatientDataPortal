@@ -17,10 +17,15 @@ npm run build
 npm run lint
 npm run typecheck
 ./scripts/check-api-clock.sh
+./scripts/check-identity-constant-time.sh
 ```
 
 All API code obtains the current time from NodaTime's injected `IClock`. The clock check is
 also a CI gate; test code uses `NodaTime.Testing.FakeClock` so expiry behavior is deterministic.
+
+`check-identity-constant-time.sh` is a deliberate code-review gate for the identity endpoint's
+unknown-reference dummy comparison. It is not a statistical timing test in CI, because host
+noise makes that kind of assertion flaky rather than meaningful.
 
 The Supabase session-pooler and private-bucket test is deliberately opt-in: CI remains
 hermetic and never receives production credentials. To run the external contract check after
@@ -55,6 +60,9 @@ running an environment that calls Supabase or Resend. `DATABASE_URL` is the sess
 connection for the dedicated application database role; `SUPABASE_SERVICE_KEY` is reserved
 for Auth administration and private Storage operations. Never use the service key as an
 application database credential.
+
+`IDENTITY_HMAC_KEY` is a distinct, high-entropy server secret used to pseudonymize identity
+verification network and patient-reference throttle keys. It must never be exposed to clients.
 
 Apply the schema with a schema-owner credential, then verify it through the application role:
 

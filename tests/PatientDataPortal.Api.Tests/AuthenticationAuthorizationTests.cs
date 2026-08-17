@@ -82,8 +82,8 @@ public sealed class AuthenticationAuthorizationTests
 
     private sealed class FakeVerifier : ISupabaseJwtVerifier
     {
-        public Task<Guid?> VerifyAsync(string token, CancellationToken cancellationToken) =>
-            Task.FromResult(token == "valid" ? Guid.Parse("7494cb41-69d6-4a86-8cec-a8d82da7b957") : (Guid?)null);
+        public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) =>
+            Task.FromResult(token == "valid" ? new AuthenticatedUser(Guid.Parse("7494cb41-69d6-4a86-8cec-a8d82da7b957"), true) : null);
     }
 
     private sealed class FakeProfiles(AppRole role) : IUserProfileRoleRepository
