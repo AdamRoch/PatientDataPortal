@@ -81,9 +81,7 @@ public sealed class PatientProfileEndpointTests
     private sealed class FakeVerifier : ISupabaseJwtVerifier
     {
         public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) =>
-            Task.FromResult(token == "valid"
-                ? new AuthenticatedUser(ProfileApplicationFactory.UserId, true)
-                : null);
+            Task.FromResult(token == "valid" ? new AuthenticatedUser(ProfileApplicationFactory.UserId, true) : null);
     }
 
     private sealed class FakeRoles(AppRole role) : IUserProfileRoleRepository

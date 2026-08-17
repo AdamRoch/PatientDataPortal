@@ -41,3 +41,22 @@ test("profile proxy verifies the patient session and forwards only to the authen
   assert.doesNotMatch(route, /\[userId\]/);
   assert.match(profile, /fetch\("\/api\/patient\/profile"/);
 });
+
+test("identity verification keeps care navigation behind verified patient state", async () => {
+  const identity = await source("components/identity-verification.tsx");
+  const route = await source("app/api/patient/identity/route.ts");
+  const styles = await source("components/identity-verification.module.css");
+
+  assert.match(identity, /label htmlFor="patientRef">Patient ID/);
+  assert.match(identity, /label htmlFor="dob">Date of birth/);
+  assert.match(identity, /type="date"/);
+  assert.match(identity, /state === "unlinked"/);
+  assert.match(identity, /setState\(verified \? "verified" : "unlinked"\)/);
+  assert.match(identity, /href="\/portal\/imaging"/);
+  assert.match(identity, /href="\/portal\/reports"/);
+  assert.match(identity, /We could not verify your identity\. Please try again later\./);
+  assert.match(route, /new URL\(request\.method === "GET" \? "\/api\/identity\/status" : "\/api\/identity\/verify", apiUrl\)/);
+  assert.match(route, /auth\.getUser/);
+  assert.match(styles, /@media \(max-width: 480px\)/);
+  assert.match(styles, /\.form button \{ width: 100%; \}/);
+});

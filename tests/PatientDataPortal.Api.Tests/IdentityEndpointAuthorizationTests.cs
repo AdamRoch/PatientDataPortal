@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -46,6 +47,24 @@ public sealed class IdentityEndpointAuthorizationTests
         await using var factory = new IdentityApplicationFactory(true, false); using var client = factory.CreateClient(); client.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
         foreach (var path in new[] { "/api/studies", "/api/images", "/api/cine", "/api/reports" })
             Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(path)).StatusCode);
+    }
+
+    [Fact]
+    public async Task IdentityStatusReportsWhetherTheCurrentPatientIsVerified()
+    {
+        await using var unverified = new IdentityApplicationFactory(emailVerified: true, verifiedPatient: false);
+        await using var verified = new IdentityApplicationFactory(emailVerified: true, verifiedPatient: true);
+
+        using var unverifiedClient = unverified.CreateClient();
+        using var verifiedClient = verified.CreateClient();
+        unverifiedClient.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
+        verifiedClient.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
+
+        var unverifiedStatus = await unverifiedClient.GetFromJsonAsync<JsonElement>("/api/identity/status");
+        var verifiedStatus = await verifiedClient.GetFromJsonAsync<JsonElement>("/api/identity/status");
+
+        Assert.False(unverifiedStatus.GetProperty("verified").GetBoolean());
+        Assert.True(verifiedStatus.GetProperty("verified").GetBoolean());
     }
 
     private sealed class IdentityApplicationFactory(bool emailVerified, bool verifiedPatient) : WebApplicationFactory<Program>
