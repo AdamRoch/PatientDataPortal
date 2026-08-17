@@ -22,3 +22,11 @@ test("cine player preloads at bounded concurrency and retains state across orien
   assert.match(player, /window\.addEventListener\("orientationchange", updateOrientation\)/);
   assert.match(player, /setCurrentFrame\(frame => frame >= frameCount - 1 \? 0 : frame \+ 1\)/);
 });
+
+test("cine player renders an unavailable manifest frame as a gap without stopping playback", async () => {
+  const player = await readFile(playerPath, "utf8");
+
+  assert.match(player, /setFailedFrames\(previous => new Set\(previous\)\.add\(frame\.frameIndex\)\)/);
+  assert.match(player, /Frame \{currentFrame \+ 1\} is unavailable \(gap\)\. Playback continues across the remaining frames\./);
+  assert.match(player, /isCurrentFrameUnavailable/);
+});

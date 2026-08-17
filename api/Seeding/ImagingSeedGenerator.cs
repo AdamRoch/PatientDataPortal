@@ -181,11 +181,13 @@ public sealed class ImagingSeedGenerator
                 if (frameCount == 100) hundredFrameClips++;
                 var manifestPath = $"studies/{study.Id}/cine/{clipId}/manifest.json";
                 var frames = new List<object>(frameCount);
+                var isDeliberatelyPartialClip = plan.Clips.Count == 0;
                 for (var frame = 1; frame <= frameCount; frame++)
                 {
                     var path = $"studies/{study.Id}/cine/{clipId}/f{frame:0000}.jpg";
                     var bytes = SyntheticJpeg($"cine:{clipId}:{frame}", FrameBytes, 256);
-                    plan.ImagingAssets.Add(new SeedAsset(path, "image/jpeg", bytes));
+                    if (!isDeliberatelyPartialClip || frame != 2)
+                        plan.ImagingAssets.Add(new SeedAsset(path, "image/jpeg", bytes));
                     frames.Add(new { path, bytes = bytes.Length });
                 }
                 var manifest = JsonSerializer.Serialize(new { frames, defaultFps = 12 });
@@ -208,7 +210,7 @@ public sealed class ImagingSeedGenerator
             }
         }
 
-        public ImagingSeedSummary ToSummary() => new(Patients.Count, Studies.Count(study => study.Status == "completed"), Studies.Count(study => study.Status == "scheduled"), Studies.Count(study => study.Status == "cancelled"), Images.Count, Clips.Count, Clips.Count(clip => clip.FrameCount == 100), Reports.Count(report => report.Status == "signed"), Reports.Count(report => report.Status == "preliminary"), ImagingAssets.Count + ReportAssets.Count, TotalBytes, StorageBudgetBytes);
+        public ImagingSeedSummary ToSummary() => new(Patients.Count, Studies.Count(study => study.Status == "completed"), Studies.Count(study => study.Status == "scheduled"), Studies.Count(study => study.Status == "cancelled"), Images.Count, Clips.Count, Clips.Count(clip => clip.FrameCount == 100), Reports.Count(report => report.Status == "signed"), Reports.Count(report => report.Status == "preliminary"), 1, ImagingAssets.Count + ReportAssets.Count, TotalBytes, StorageBudgetBytes);
     }
 
     private static Guid IdFor(string value) => new(SHA256.HashData(Encoding.UTF8.GetBytes("PTDP-17:" + value)).AsSpan(0, 16));
@@ -276,7 +278,7 @@ public sealed class ImagingSeedGenerator
 
 public sealed record SeedAsset(string Path, string ContentType, byte[] Bytes);
 
-public sealed record ImagingSeedSummary(int Patients, int CompletedStudies, int ScheduledStudies, int CancelledStudies, int Images, int CineClips, int HundredFrameClips, int SignedReports, int PreliminaryReports, int StorageObjects, long StorageBytes, long StorageBudgetBytes)
+public sealed record ImagingSeedSummary(int Patients, int CompletedStudies, int ScheduledStudies, int CancelledStudies, int Images, int CineClips, int HundredFrameClips, int SignedReports, int PreliminaryReports, int CineClipsWithMissingFrames, int StorageObjects, long StorageBytes, long StorageBudgetBytes)
 {
-    public string ToLogLine() => string.Create(CultureInfo.InvariantCulture, $"imaging-seed patients={Patients} completed_studies={CompletedStudies} scheduled_studies={ScheduledStudies} cancelled_studies={CancelledStudies} images={Images} cine_clips={CineClips} hundred_frame_clips={HundredFrameClips} signed_reports={SignedReports} preliminary_reports={PreliminaryReports} storage_objects={StorageObjects} storage_bytes={StorageBytes} storage_budget_bytes={StorageBudgetBytes}");
+    public string ToLogLine() => string.Create(CultureInfo.InvariantCulture, $"imaging-seed patients={Patients} completed_studies={CompletedStudies} scheduled_studies={ScheduledStudies} cancelled_studies={CancelledStudies} images={Images} cine_clips={CineClips} hundred_frame_clips={HundredFrameClips} signed_reports={SignedReports} preliminary_reports={PreliminaryReports} cine_clips_with_missing_frames={CineClipsWithMissingFrames} storage_objects={StorageObjects} storage_bytes={StorageBytes} storage_budget_bytes={StorageBudgetBytes}");
 }

@@ -21,6 +21,7 @@ export function CinePlayer({ clipId }: { clipId: string }) {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [frameUrls, setFrameUrls] = useState<Record<number, string>>({});
   const [loadedFrames, setLoadedFrames] = useState<Set<number>>(() => new Set());
+  const [failedFrames, setFailedFrames] = useState<Set<number>>(() => new Set());
   const [currentFrame, setCurrentFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [fps, setFps] = useState(12);
@@ -42,6 +43,8 @@ export function CinePlayer({ clipId }: { clipId: string }) {
         preloading.current -= 1;
         if (image.complete && image.naturalWidth > 0) {
           setLoadedFrames(previous => new Set(previous).add(frame.frameIndex));
+        } else {
+          setFailedFrames(previous => new Set(previous).add(frame.frameIndex));
         }
         pumpPreloadQueueRef.current();
       };
@@ -110,15 +113,18 @@ export function CinePlayer({ clipId }: { clipId: string }) {
 
   const currentUrl = frameUrls[currentFrame];
   const isCurrentFrameLoaded = loadedFrames.has(currentFrame);
+  const isCurrentFrameUnavailable = failedFrames.has(currentFrame);
   const step = (direction: number) => setCurrentFrame(frame => Math.max(0, Math.min(frameCount - 1, frame + direction)));
 
   return <section className={styles.player} aria-label="Cine player" data-orientation={portrait ? "portrait" : "landscape"}>
-    <div className={styles.canvas} aria-busy={!isCurrentFrameLoaded}>
+    <div className={styles.canvas} aria-busy={!isCurrentFrameLoaded && !isCurrentFrameUnavailable}>
       {currentUrl && isCurrentFrameLoaded
         // Signed storage URLs are minted at runtime and must not pass through an image optimization proxy.
         // eslint-disable-next-line @next/next/no-img-element
         ? <img className={styles.frame} src={currentUrl} alt={`Cine frame ${currentFrame + 1} of ${frameCount}`} />
-        : <p>Loading frame {currentFrame + 1}…</p>}
+        : isCurrentFrameUnavailable
+          ? <p className={styles.gap} role="status">Frame {currentFrame + 1} is unavailable (gap). Playback continues across the remaining frames.</p>
+          : <p>Loading frame {currentFrame + 1}…</p>}
     </div>
     <div className={styles.controls} aria-label="Cine playback controls">
       <button type="button" aria-label="Previous frame" onClick={() => step(-1)} disabled={currentFrame === 0}>Previous</button>
