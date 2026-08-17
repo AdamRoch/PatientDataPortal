@@ -98,8 +98,8 @@ public sealed class DemoAccountSeedGenerator
             ("user_id", userId), ("role", account.Role), ("display_name", account.DisplayName), ("tz", "America/Chicago"));
 
     private static Task UpsertProviderAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid userId, CancellationToken cancellationToken) =>
-        ExecuteAsync(connection, transaction, "INSERT INTO providers (id, user_id, tz, slot_length_min) VALUES (@id, @user_id, @tz, @slot_length_min) ON CONFLICT (user_id) DO UPDATE SET tz = EXCLUDED.tz, slot_length_min = EXCLUDED.slot_length_min", cancellationToken,
-            ("id", DeterministicGuid("demo-provider")), ("user_id", userId), ("tz", "America/Chicago"), ("slot_length_min", 30));
+        ExecuteAsync(connection, transaction, "INSERT INTO providers (id, user_id, tz, slot_length_min) VALUES (@id, @user_id, @tz, @slot_length_min) ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, tz = EXCLUDED.tz, slot_length_min = EXCLUDED.slot_length_min", cancellationToken,
+            ("id", BenchmarkScheduleSeedGenerator.DemoProviderId), ("user_id", userId), ("tz", "America/Chicago"), ("slot_length_min", 30));
 
     private static async Task ClaimLinkedPatientAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid userId, CancellationToken cancellationToken)
     {

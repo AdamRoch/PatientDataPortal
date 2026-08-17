@@ -37,6 +37,14 @@ if (args.Contains("--seed-imaging", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--seed-benchmark", StringComparer.Ordinal))
+{
+    var imaging = await new ImagingSeedGenerator().SeedAsync();
+    var schedule = await new BenchmarkScheduleSeedGenerator().SeedAsync();
+    Console.WriteLine($"benchmark-seed imaging=({imaging.ToLogLine()}) schedule=({schedule.ToLogLine()})");
+    return;
+}
+
 if (args.Contains("--describe-imaging-seed", StringComparer.Ordinal))
 {
     Console.WriteLine(ImagingSeedGenerator.DescribePlan().ToLogLine());
@@ -84,6 +92,14 @@ builder.Services.Configure<OutboxOptions>(options =>
     if (int.TryParse(builder.Configuration["OUTBOX_BATCH_SIZE"], out var batchSize)) options.BatchSize = batchSize;
     if (int.TryParse(builder.Configuration["OUTBOX_MAX_ATTEMPTS"], out var maximumAttempts)) options.MaximumAttempts = maximumAttempts;
     if (int.TryParse(builder.Configuration["OUTBOX_LEASE_MINUTES"], out var leaseMinutes)) options.LeaseMinutes = leaseMinutes;
+});
+builder.Services.Configure<ReminderOptions>(options =>
+{
+    options.PortalUrl = builder.Configuration["APP_URL"] ?? "http://localhost:3000";
+    if (builder.Environment.IsDevelopment()
+        && int.TryParse(builder.Configuration["REMINDER_LEAD_MINUTES"], out var leadMinutes)
+        && leadMinutes > 0)
+        options.LeadMinutes = leadMinutes;
 });
 builder.Services.AddHttpClient("resend", client => client.BaseAddress = new Uri("https://api.resend.com/"));
 builder.Services.AddHttpClient<ISupabaseJwtVerifier, SupabaseJwtVerifier>();
