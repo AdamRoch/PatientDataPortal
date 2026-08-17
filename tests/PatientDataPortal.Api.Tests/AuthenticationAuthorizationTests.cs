@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -41,6 +42,32 @@ public sealed class AuthenticationAuthorizationTests
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Contains(factory.Audits.Events, audit => audit.Action == "authorization_denied" && audit.Result == "denied");
+    }
+
+    [Fact]
+    public async Task TamperedJwtCannotReadStudiesImagesOrCineOrMintFrames()
+    {
+        await using var factory = new AuthTestApplicationFactory(AppRole.Patient);
+        using var client = factory.CreateClient();
+        var imageId = Guid.NewGuid();
+        var clipId = Guid.NewGuid();
+        var requests = new HttpRequestMessage[]
+        {
+            new(HttpMethod.Get, "/api/studies"),
+            new(HttpMethod.Get, $"/api/images/{imageId}"),
+            new(HttpMethod.Get, $"/api/cine/{clipId}"),
+            new(HttpMethod.Post, $"/api/cine/{clipId}/frame-urls") { Content = JsonContent.Create(new { startFrame = 0, count = 1 }) },
+        };
+
+        foreach (var request in requests)
+        {
+            request.Headers.Authorization = new("Bearer", "tampered");
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.Empty(await response.Content.ReadAsByteArrayAsync());
+        }
+
+        Assert.Equal(4, factory.Audits.Events.Count(audit => audit.Action == "authentication_denied" && audit.Result == "denied"));
     }
 
     [Fact]

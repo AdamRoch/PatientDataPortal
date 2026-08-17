@@ -51,7 +51,7 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
     public async Task<ActionResult<ImageAccess>> Image(Guid id, [FromServices] IImageAccessService images, CancellationToken cancellationToken)
     {
         var image = await images.MintForPatientAsync(id, UserId(), cancellationToken);
-        return image is null ? NotFound() : Ok(image);
+        return image is null ? new ActionResult<ImageAccess>(NotFoundWithoutBody()) : Ok(image);
     }
 
     [HttpGet("api/reports")]
@@ -89,7 +89,7 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
         if (clip is null)
         {
             await WriteDeniedAsync(audit, id, cancellationToken);
-            return NotFound();
+            return new ActionResult<CineManifestResponse>(NotFoundWithoutBody());
         }
 
         await WriteGrantedAsync(audit, id, cancellationToken);
@@ -113,7 +113,7 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
         if (clip is null)
         {
             await WriteDeniedAsync(audit, id, cancellationToken);
-            return NotFound();
+            return new ActionResult<CineFrameUrlBatchResponse>(NotFoundWithoutBody());
         }
 
         var paths = clip.FramePaths.Skip(request.StartFrame).Take(request.Count).ToArray();
@@ -125,6 +125,11 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
 
     private Task WriteGrantedAsync(IAuditWriter audit, Guid clipId, CancellationToken cancellationToken) => audit.WriteAsync(new AuditEvent(UserId().ToString(), "patient", "content_access_granted", "cine_clip", clipId.ToString(), "allowed"), cancellationToken);
     private Task WriteDeniedAsync(IAuditWriter audit, Guid clipId, CancellationToken cancellationToken) => audit.WriteDeniedAsync(new AuditEvent(UserId().ToString(), "patient", "content_access_denied", "cine_clip", clipId.ToString(), "denied"), cancellationToken);
+    private EmptyResult NotFoundWithoutBody()
+    {
+        Response.StatusCode = StatusCodes.Status404NotFound;
+        return new EmptyResult();
+    }
     private static bool IsEmailAddress(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return false;

@@ -14,8 +14,10 @@ namespace PatientDataPortal.Api.Tests;
 
 public sealed class StudiesEndpointTests
 {
-    [Fact]
-    public async Task VerifiedPatientSeesOnlyTheirCompletedPastStudies()
+    [Theory]
+    [InlineData("052e7848-3763-40f7-b45a-7c8c38320788")]
+    [InlineData("cf4f0cb1-0cc1-4b6c-b287-4cd4f65df1be")]
+    public async Task PatientRecordIdGuessingCannotExposeAnotherPatientsStudies(string guessedPatientRecordId)
     {
         var ownStudy = new StudyListItem(Guid.Parse("f31380f3-d3e6-499c-aed5-c0e997bb2919"), DateTimeOffset.Parse("2026-01-10T12:00:00Z"), "Follow-up ultrasound");
         await using var factory = new StudiesApplicationFactory(verified: true, new Dictionary<Guid, IReadOnlyList<StudyListItem>>
@@ -27,11 +29,12 @@ public sealed class StudiesEndpointTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
 
-        var response = await client.GetAsync("/api/studies?patientRecordId=" + StudiesApplicationFactory.OtherUserId);
+        var response = await client.GetAsync("/api/studies?patientRecordId=" + guessedPatientRecordId);
         var studies = await response.Content.ReadFromJsonAsync<List<StudyListItem>>();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal([ownStudy], studies);
+        Assert.DoesNotContain(studies!, study => study.Description == "Another patient's study");
         Assert.Equal(StudiesApplicationFactory.UserId, factory.Studies.LastAccountId);
     }
 

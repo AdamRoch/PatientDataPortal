@@ -41,24 +41,51 @@ public sealed class ImageEndpointTests
         var response = await client.GetAsync($"/api/images/{Guid.NewGuid()}");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(await response.Content.ReadAsByteArrayAsync());
         Assert.Null(factory.Images.AccountId);
         Assert.Contains(factory.Audit.Events, audit => audit.Action == "verified_patient_required" && audit.Result == "denied");
+    }
+
+    [Fact]
+    public async Task ForeignJwtCannotMintAnotherPatientsImageBytesAndIsAudited()
+    {
+        var imageId = Guid.NewGuid();
+        await using var factory = new ImageApplicationFactory(verified: true, imageId);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "foreign");
+
+        var response = await client.GetAsync($"/api/images/{imageId}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(await response.Content.ReadAsByteArrayAsync());
+        Assert.Equal(ImageApplicationFactory.OtherUserId, factory.Images.AccountId);
+        Assert.Contains(factory.Audit.Events, audit => audit.Action == "content_access_denied" && audit.TargetType == "image" && audit.TargetReference == imageId.ToString() && audit.Result == "denied");
     }
 
     private sealed class ImageApplicationFactory(bool verified, Guid imageId) : WebApplicationFactory<Program>
     {
         public static readonly Guid UserId = Guid.Parse("7494cb41-69d6-4a86-8cec-a8d82da7b957");
+        public static readonly Guid OtherUserId = Guid.Parse("052e7848-3763-40f7-b45a-7c8c38320788");
         public FakeImages Images { get; } = new(imageId);
         public AuditCapture Audit { get; } = new();
 
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<ISupabaseJwtVerifier>(); services.RemoveAll<IUserProfileRoleRepository>(); services.RemoveAll<IIdentityVerificationService>(); services.RemoveAll<IAuditWriter>(); services.RemoveAll<IImageAccessService>();
+            Images.Audit = Audit;
             services.AddSingleton<ISupabaseJwtVerifier>(new FakeJwt()); services.AddSingleton<IUserProfileRoleRepository>(new PatientRole()); services.AddSingleton<IIdentityVerificationService>(new FakeIdentity(verified)); services.AddSingleton<IAuditWriter>(Audit); services.AddSingleton<IImageAccessService>(Images);
         });
     }
 
-    private sealed class FakeJwt : ISupabaseJwtVerifier { public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token == "valid" ? new AuthenticatedUser(ImageApplicationFactory.UserId, true) : null); }
+    private sealed class FakeJwt : ISupabaseJwtVerifier
+    {
+        public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token switch
+        {
+            "valid" => new AuthenticatedUser(ImageApplicationFactory.UserId, true),
+            "foreign" => new AuthenticatedUser(ImageApplicationFactory.OtherUserId, true),
+            _ => null,
+        });
+    }
     private sealed class PatientRole : IUserProfileRoleRepository { public Task<AppRole?> GetRoleAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<AppRole?>(AppRole.Patient); }
     private sealed class FakeIdentity(bool verified) : IIdentityVerificationService
     {
@@ -69,10 +96,15 @@ public sealed class ImageEndpointTests
     public sealed class FakeImages(Guid ownedImageId) : IImageAccessService
     {
         public Guid? AccountId { get; private set; }
-        public Task<ImageAccess?> MintForPatientAsync(Guid imageId, Guid accountId, CancellationToken cancellationToken)
+        public AuditCapture? Audit { get; set; }
+        public async Task<ImageAccess?> MintForPatientAsync(Guid imageId, Guid accountId, CancellationToken cancellationToken)
         {
             AccountId = accountId;
-            return Task.FromResult<ImageAccess?>(imageId == ownedImageId ? new ImageAccess(imageId, Guid.NewGuid(), "https://storage.example.test/signed", DateTimeOffset.UtcNow.AddMinutes(5)) : null);
+            if (accountId == ImageApplicationFactory.UserId && imageId == ownedImageId)
+                return new ImageAccess(imageId, Guid.NewGuid(), "https://storage.example.test/signed", DateTimeOffset.UtcNow.AddMinutes(5));
+
+            await Audit!.WriteDeniedAsync(new AuditEvent(accountId.ToString(), "patient", "content_access_denied", "image", imageId.ToString(), "denied"), cancellationToken);
+            return null;
         }
     }
     public sealed class AuditCapture : IAuditWriter

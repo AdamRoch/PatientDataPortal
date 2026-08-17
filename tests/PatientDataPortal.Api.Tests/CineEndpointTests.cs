@@ -75,6 +75,42 @@ public sealed class CineEndpointTests
         Assert.Contains(factory.Audit.Events, audit => audit.Action == "content_access_denied" && audit.Result == "denied");
     }
 
+    [Fact]
+    public async Task ForeignJwtCannotReadManifestOrMintFrameUrls()
+    {
+        var clipId = Guid.NewGuid();
+        await using var factory = new CineApplicationFactory(clipId, OwnedClip(clipId));
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "foreign");
+
+        var manifest = await client.GetAsync($"/api/cine/{clipId}");
+        var frames = await client.PostAsJsonAsync($"/api/cine/{clipId}/frame-urls", new { startFrame = 0, count = 1 });
+
+        Assert.Equal(HttpStatusCode.NotFound, manifest.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, frames.StatusCode);
+        Assert.Empty(await manifest.Content.ReadAsByteArrayAsync());
+        Assert.Empty(await frames.Content.ReadAsByteArrayAsync());
+        Assert.Equal([CineApplicationFactory.OtherUserId, CineApplicationFactory.OtherUserId], factory.Repository.AccountIds);
+        Assert.Empty(factory.Signer.LastPaths);
+        Assert.Equal(2, factory.Audit.Events.Count(audit => audit.Action == "content_access_denied" && audit.TargetType == "cine_clip" && audit.TargetReference == clipId.ToString() && audit.Result == "denied"));
+    }
+
+    [Fact]
+    public async Task UnverifiedPatientCannotReadCineManifest()
+    {
+        var clipId = Guid.NewGuid();
+        await using var factory = new CineApplicationFactory(clipId, OwnedClip(clipId), verified: false);
+        using var client = AuthorizedClient(factory);
+
+        var manifest = await client.GetAsync($"/api/cine/{clipId}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, manifest.StatusCode);
+        Assert.Empty(await manifest.Content.ReadAsByteArrayAsync());
+        Assert.Empty(factory.Repository.AccountIds);
+        Assert.Empty(factory.Signer.LastPaths);
+        Assert.Single(factory.Audit.Events, audit => audit.Action == "verified_patient_required" && audit.TargetReference == $"/api/cine/{clipId}" && audit.Result == "denied");
+    }
+
     private static HttpClient AuthorizedClient(WebApplicationFactory<Program> factory)
     {
         var client = factory.CreateClient();
@@ -88,9 +124,10 @@ public sealed class CineEndpointTests
         return new CineClipAccess(id, document.RootElement.Clone(), ["studies/s/cine/c/f0001.jpg", "studies/s/cine/c/f0002.jpg", "studies/s/cine/c/f0003.jpg"]);
     }
 
-    private sealed class CineApplicationFactory(Guid expectedClipId, CineClipAccess? clip) : WebApplicationFactory<Program>
+    private sealed class CineApplicationFactory(Guid expectedClipId, CineClipAccess? clip, bool verified = true) : WebApplicationFactory<Program>
     {
         public static readonly Guid UserId = Guid.Parse("7494cb41-69d6-4a86-8cec-a8d82da7b957");
+        public static readonly Guid OtherUserId = Guid.Parse("052e7848-3763-40f7-b45a-7c8c38320788");
         public FakeCineRepository Repository { get; } = new(expectedClipId, clip);
         public FakeSigner Signer { get; } = new();
         public CapturingAuditWriter Audit { get; } = new();
@@ -105,7 +142,7 @@ public sealed class CineEndpointTests
             services.RemoveAll<ICineFrameUrlSigner>();
             services.AddSingleton<ISupabaseJwtVerifier>(new FakeJwtVerifier());
             services.AddSingleton<IUserProfileRoleRepository>(new PatientRole());
-            services.AddSingleton<IIdentityVerificationService>(new FakeIdentityService());
+            services.AddSingleton<IIdentityVerificationService>(new FakeIdentityService(verified));
             services.AddSingleton<IAuditWriter>(Audit);
             services.AddSingleton<ICineRepository>(Repository);
             services.AddSingleton<ICineFrameUrlSigner>(Signer);
@@ -119,7 +156,7 @@ public sealed class CineEndpointTests
         public Task<CineClipAccess?> GetOwnedAsync(Guid clipId, Guid accountId, CancellationToken cancellationToken)
         {
             AccountIds.Add(accountId);
-            return Task.FromResult(clipId == expectedClipId ? clip : null);
+            return Task.FromResult(accountId == CineApplicationFactory.UserId && clipId == expectedClipId ? clip : null);
         }
     }
 
@@ -140,11 +177,19 @@ public sealed class CineEndpointTests
         public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { Events.Add(auditEvent); return Task.CompletedTask; }
     }
 
-    private sealed class FakeJwtVerifier : ISupabaseJwtVerifier { public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token == "valid" ? new AuthenticatedUser(CineApplicationFactory.UserId, true) : null); }
-    private sealed class PatientRole : IUserProfileRoleRepository { public Task<AppRole?> GetRoleAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<AppRole?>(AppRole.Patient); }
-    private sealed class FakeIdentityService : IIdentityVerificationService
+    private sealed class FakeJwtVerifier : ISupabaseJwtVerifier
     {
-        public Task<bool> IsVerifiedPatientAsync(Guid accountId, CancellationToken cancellationToken) => Task.FromResult(true);
+        public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token switch
+        {
+            "valid" => new AuthenticatedUser(CineApplicationFactory.UserId, true),
+            "foreign" => new AuthenticatedUser(CineApplicationFactory.OtherUserId, true),
+            _ => null,
+        });
+    }
+    private sealed class PatientRole : IUserProfileRoleRepository { public Task<AppRole?> GetRoleAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<AppRole?>(AppRole.Patient); }
+    private sealed class FakeIdentityService(bool verified) : IIdentityVerificationService
+    {
+        public Task<bool> IsVerifiedPatientAsync(Guid accountId, CancellationToken cancellationToken) => Task.FromResult(verified);
         public Task<IdentityVerificationResult> VerifyAsync(Guid accountId, bool emailVerified, IdentityVerificationRequest request, string networkIdentity, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task RecoverClaimAsync(Guid patientRecordId, Guid adminId, string? reasonCode, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
