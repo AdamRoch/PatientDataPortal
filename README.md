@@ -83,8 +83,9 @@ dotnet run --project api -- --seed-imaging
 ```
 
 The generator needs `DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_KEY`. It creates or
-uses the private `study-assets` bucket, then deterministically upserts 50 synthetic patient
-records, completed studies, scheduled/cancelled studies, images, thumbnails, and cine frames.
+uses the private `study-assets` and `reports` buckets, then deterministically upserts 50 synthetic patient
+records, completed studies, scheduled/cancelled studies, images, thumbnails, cine frames, and signed plus
+preliminary synthetic PDF reports. The PDFs are explicitly non-clinical demo fixtures.
 It prints the generated counts and byte total, and refuses a plan at or above the 1 GB storage
 budget. Re-running it overwrites the same deterministic object paths and upserts the same IDs;
 it does not create additional seed rows or objects. These fixtures are synthetic only.

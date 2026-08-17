@@ -19,6 +19,8 @@ public sealed class ImagingSeedGeneratorTests
         Assert.True(first.Images > 0);
         Assert.True(first.CineClips > 0);
         Assert.True(first.HundredFrameClips >= 2);
+        Assert.Equal(12, first.SignedReports);
+        Assert.Equal(12, first.PreliminaryReports);
         Assert.True(first.StorageBytes < first.StorageBudgetBytes);
     }
 }
