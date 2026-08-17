@@ -1,0 +1,13 @@
+.section { max-width: 56rem; }
+.filters { align-items: end; display: grid; gap: .75rem; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 1rem; }
+.filters label { display: grid; font-size: .85rem; font-weight: 600; gap: .3rem; }
+.filters input { border: 1px solid #b8cbd0; border-radius: .4rem; font: inherit; min-width: 0; padding: .55rem; }
+.filters button { background: #176b71; border: 0; border-radius: .4rem; color: white; cursor: pointer; font: inherit; font-weight: 700; padding: .6rem .8rem; }
+.list { display: grid; gap: .75rem; list-style: none; margin: 0; padding: 0; }
+.list li { background: var(--surface); border: 1px solid #d9e6e8; border-radius: .75rem; padding: 1rem; }
+.heading { align-items: center; display: flex; gap: .5rem; justify-content: space-between; }
+.result { background: #e8f3f4; border-radius: 999px; color: #176b71; font-size: .85rem; font-weight: 700; padding: .2rem .55rem; }
+.list dl { display: grid; gap: .75rem; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 1rem 0 0; }
+.list dt { color: var(--muted); font-size: .8rem; }
+.list dd { margin: .2rem 0 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .filters, .list dl { grid-template-columns: 1fr; } .filters button { width: 100%; } }
