@@ -36,6 +36,7 @@ public sealed class StudiesEndpointTests
         Assert.Equal([ownStudy], studies);
         Assert.DoesNotContain(studies!, study => study.Description == "Another patient's study");
         Assert.Equal(StudiesApplicationFactory.UserId, factory.Studies.LastAccountId);
+        Assert.Contains(factory.Audit.Events, audit => audit.Action == "study_list_viewed" && audit.TargetType == "study" && audit.Result == "allowed");
     }
 
     [Fact]

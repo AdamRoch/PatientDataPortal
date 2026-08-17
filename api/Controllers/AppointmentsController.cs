@@ -9,11 +9,16 @@ namespace PatientDataPortal.Api.Controllers;
 [ApiController]
 [Route("api/appointments")]
 [RequireRole(AppRole.Patient)]
-public sealed class AppointmentsController(IAppointmentBookingService bookings, IAppointmentChangeService changes, IPatientAppointmentRepository appointments) : ControllerBase
+public sealed class AppointmentsController(IAppointmentBookingService bookings, IAppointmentChangeService changes, IPatientAppointmentRepository appointments, IAuditWriter audit) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<PatientAppointments>> List(CancellationToken cancellationToken) =>
-        Ok(await appointments.ListForPatientAsync(Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!), cancellationToken));
+    public async Task<ActionResult<PatientAppointments>> List(CancellationToken cancellationToken)
+    {
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var result = await appointments.ListForPatientAsync(userId, cancellationToken);
+        await audit.WriteAllowedAsync(new AuditEvent(userId.ToString(), "patient", "appointment_list_viewed", "appointment", "own", "allowed"), cancellationToken);
+        return Ok(result);
+    }
 
     [HttpPost]
     public async Task<ActionResult<AppointmentConfirmation>> Create(CreateAppointmentRequest request, CancellationToken cancellationToken)

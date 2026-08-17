@@ -30,6 +30,7 @@ public sealed class ProviderAppointmentsEndpointTests
         Assert.Equal("America/Chicago", schedule.TimeZoneId);
         Assert.Single(schedule.Upcoming);
         Assert.Single(schedule.Past);
+        Assert.Contains(factory.Audit.Events, audit => audit.Action == "provider_appointment_schedule_viewed" && audit.TargetType == "appointment" && audit.Result == "allowed");
     }
 
     [Fact]
@@ -70,10 +71,11 @@ public sealed class ProviderAppointmentsEndpointTests
         public static readonly Guid UserId = Guid.Parse("735f86b0-8f47-41d3-9c6d-6f5a3822eaa4");
         public FakeAppointments Appointments { get; } = new();
         public FakeLifecycle Lifecycle { get; } = new();
+        public CapturingAudit Audit { get; } = new();
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.ConfigureTestServices(services =>
         {
-            services.RemoveAll<ISupabaseJwtVerifier>(); services.RemoveAll<IUserProfileRoleRepository>(); services.RemoveAll<IProviderAppointmentsRepository>(); services.RemoveAll<IAppointmentLifecycleService>(); services.RemoveAll<IClock>();
-            services.AddSingleton<ISupabaseJwtVerifier>(new FakeVerifier()); services.AddSingleton<IUserProfileRoleRepository>(new FakeRoles(role)); services.AddSingleton<IProviderAppointmentsRepository>(Appointments); services.AddSingleton<IAppointmentLifecycleService>(Lifecycle); services.AddSingleton<IClock>(new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
+            services.RemoveAll<ISupabaseJwtVerifier>(); services.RemoveAll<IUserProfileRoleRepository>(); services.RemoveAll<IProviderAppointmentsRepository>(); services.RemoveAll<IAppointmentLifecycleService>(); services.RemoveAll<IClock>(); services.RemoveAll<IAuditWriter>();
+            services.AddSingleton<ISupabaseJwtVerifier>(new FakeVerifier()); services.AddSingleton<IUserProfileRoleRepository>(new FakeRoles(role)); services.AddSingleton<IProviderAppointmentsRepository>(Appointments); services.AddSingleton<IAppointmentLifecycleService>(Lifecycle); services.AddSingleton<IClock>(new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0))); services.AddSingleton<IAuditWriter>(Audit);
         });
     }
 
@@ -92,5 +94,11 @@ public sealed class ProviderAppointmentsEndpointTests
     {
         public (Guid UserId, AppRole Role, Guid AppointmentId, string Status)? Request { get; private set; }
         public Task<AppointmentStatusConfirmation> TransitionAsync(Guid actorUserId, AppRole actorRole, Guid appointmentId, string status, CancellationToken cancellationToken) { Request = (actorUserId, actorRole, appointmentId, status); return Task.FromResult(new AppointmentStatusConfirmation(appointmentId, status)); }
+    }
+    private sealed class CapturingAudit : IAuditWriter
+    {
+        public List<AuditEvent> Events { get; } = [];
+        public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { Events.Add(auditEvent); return Task.CompletedTask; }
+        public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) { Events.Add(auditEvent); return Task.CompletedTask; }
     }
 }

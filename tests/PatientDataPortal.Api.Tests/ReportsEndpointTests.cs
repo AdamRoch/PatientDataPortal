@@ -48,7 +48,7 @@ public sealed class ReportsEndpointTests
         Assert.Equal("https://storage.example.test/signed.pdf", body!["url"]);
         Assert.Equal("reports/signed.pdf", factory.Storage.LastStoragePath);
         var audit = Assert.Single(factory.Audit.AllowedEvents);
-        Assert.Equal("report_view", audit.Action);
+        Assert.Equal("content_access_granted", audit.Action);
         Assert.Equal("report", audit.TargetType);
         Assert.Equal(id.ToString(), audit.TargetReference);
     }
@@ -140,7 +140,7 @@ public sealed class ReportsEndpointTests
     }
 
     private static void AssertDeniedReportView(ReportsApplicationFactory factory, Guid reportId, Guid actorId) =>
-        Assert.Contains(factory.Audit.DeniedEvents, audit => audit.ActorReference == actorId.ToString() && audit.Action == "report_view" && audit.TargetType == "report" && audit.TargetReference == reportId.ToString() && audit.Result == "denied");
+        Assert.Contains(factory.Audit.DeniedEvents, audit => audit.ActorReference == actorId.ToString() && audit.Action == "content_access_denied" && audit.TargetType == "report" && audit.TargetReference == reportId.ToString() && audit.Result == "denied");
 
     private sealed record ReportFixture(Guid Id, Guid OwnerId, string StoragePath, bool Signed);
 
