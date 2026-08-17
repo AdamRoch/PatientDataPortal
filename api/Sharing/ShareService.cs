@@ -67,9 +67,9 @@ public sealed class ShareService(
         var payload = JsonSerializer.Serialize(new
         {
             to = request.RecipientEmail,
-            subject = "A medical record has been shared with you",
-            html = $"<p>A medical record has been shared with you.</p><p><a href=\"{link}\">Open shared record</a></p>",
-            text = $"A medical record has been shared with you: {link}",
+            subject = "A medical image or report has been shared with you",
+            html = $"<p>A medical image or report has been shared with you.</p><p><a href=\"{link}\">Open shared item</a></p><p>This link expires in 48 hours.</p>",
+            text = $"A medical image or report has been shared with you. Open the link: {link} This link expires in 48 hours.",
         });
 
         await InsertShareAsync(connection, transaction, shareId, tokenHash, resourceType, request.ResourceId, request.RecipientEmail, expiresAt, cancellationToken);

@@ -64,6 +64,7 @@ public sealed class EmailOutboxWorkerTests : IAsyncLifetime
         Assert.Equal(new[] { "outbox/crash", "outbox/crash" }, sender.Keys);
         Assert.Single(sender.ProviderCommands);
         Assert.Equal("sent", await fixture.StatusAsync("crash"));
+        Assert.Equal("provider_outbox/crash", await fixture.ProviderMessageIdAsync("crash"));
     }
 
     [Fact]
@@ -171,6 +172,7 @@ public sealed class EmailOutboxWorkerTests : IAsyncLifetime
         public async Task<string> StatusAsync(string key) => await ScalarAsync<string>("SELECT status FROM email_outbox WHERE idempotency_key = @key;", $"outbox/{key}");
         public async Task<string> PayloadAsync(string key) => await ScalarAsync<string>("SELECT payload::text FROM email_outbox WHERE idempotency_key = @key;", $"outbox/{key}");
         public async Task<int> AttemptsAsync(string key) => await ScalarAsync<int>("SELECT attempts FROM email_outbox WHERE idempotency_key = @key;", $"outbox/{key}");
+        public async Task<string> ProviderMessageIdAsync(string key) => await ScalarAsync<string>("SELECT provider_message_id FROM email_outbox WHERE idempotency_key = @key;", $"outbox/{key}");
         public async Task<int> CountByStatusAsync(string status) => await ScalarAsync<int>("SELECT count(*)::int FROM email_outbox WHERE status = @key;", status);
 
         private async Task<T> ScalarAsync<T>(string sql, string key)
