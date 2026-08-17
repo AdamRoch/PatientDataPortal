@@ -4,6 +4,7 @@ using PatientDataPortal.Api.Health;
 using PatientDataPortal.Api.Observability;
 using PatientDataPortal.Api.Time;
 using PatientDataPortal.Api.Migrations;
+using PatientDataPortal.Api.Profiles;
 using PatientDataPortal.Api.Security;
 using Microsoft.AspNetCore.Authorization;
 using NodaTime;
@@ -56,6 +57,7 @@ builder.Services.AddHttpClient("resend", client => client.BaseAddress = new Uri(
 builder.Services.AddHttpClient<ISupabaseJwtVerifier, SupabaseJwtVerifier>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IUserProfileRoleRepository, UserProfileRoleRepository>();
+builder.Services.AddScoped<IPatientProfileRepository, PatientProfileRepository>();
 builder.Services.AddScoped<IAuditWriter, AuditWriter>();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, RoleAuthorizationPolicyProvider>();
 builder.Services.AddScoped<IAuthorizationHandler, RoleAuthorizationHandler>();
