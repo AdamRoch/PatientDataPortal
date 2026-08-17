@@ -1,0 +1,10 @@
+.picker { border: 1px solid #cbd5e1; border-radius: .75rem; margin-top: 1.5rem; padding: 1rem; }
+.fields { display: grid; gap: .75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.field { display: grid; gap: .35rem; font-weight: 600; }
+.field select { font: inherit; min-width: 0; padding: .55rem; }
+.zone { color: #475569; font-size: .9rem; }
+.day { border-top: 1px solid #e2e8f0; margin-top: 1rem; padding-top: 1rem; }
+.times { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; margin: .5rem 0 0; padding: 0; }
+.times button { min-height: 2.75rem; padding: .5rem .7rem; }
+.selected { background: #0f766e; color: white; }
+@media (max-width: 480px) { .fields { grid-template-columns: 1fr; } .times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .times button { width: 100%; } }

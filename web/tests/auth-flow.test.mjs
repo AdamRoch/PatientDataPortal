@@ -127,3 +127,20 @@ test("email outbox viewer proxies to the server-enforced admin endpoint without 
   assert.doesNotMatch(viewer, /payload|href=/i);
   assert.match(styles, /@media \(max-width: 480px\)/);
 });
+
+test("appointment picker uses the authenticated discovery routes and labels viewer-local times at phone width", async () => {
+  const providersRoute = await source("app/api/patient/providers/route.ts");
+  const slotsRoute = await source("app/api/patient/providers/[id]/slots/route.ts");
+  const picker = await source("components/appointment-picker.tsx");
+  const styles = await source("components/appointment-picker.module.css");
+
+  assert.match(providersRoute, /auth\.getUser/);
+  assert.match(providersRoute, /new URL\("\/api\/providers", apiUrl\)/);
+  assert.match(slotsRoute, /encodeURIComponent\(id\)/);
+  assert.match(slotsRoute, /query\.toString\(\)/);
+  assert.match(picker, /Choose a provider/);
+  assert.match(picker, /Choose a service/);
+  assert.match(picker, /Times shown in \{zone\}/);
+  assert.match(picker, /Intl\.DateTimeFormat/);
+  assert.match(styles, /@media \(max-width: 480px\)/);
+});
