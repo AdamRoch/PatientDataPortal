@@ -145,6 +145,12 @@ repository secrets `OUTBOX_JOB_URL` (the deployed API base URL, without a traili
 `OUTBOX_JOB_SECRET` (the same server-side value). GitHub Actions scheduling can run late; that
 is safe because the worker always selects every unsent row whose `due_at` is in the past.
 
+Appointment reminders are scheduled only when an appointment starts after the configured
+lead interval (24 hours by default); appointments booked inside that interval do not receive
+a catch-up reminder. In Development only, set `REMINDER_LEAD_MINUTES` to a positive value to
+use a shorter lead time for the demo. Production ignores that override. Reminder emails contain
+only a generic portal notification and a link to the portal, never appointment details.
+
 ## Logging conventions
 
 The API writes compact structured JSON logs. Every request has an `X-Request-Id` correlation

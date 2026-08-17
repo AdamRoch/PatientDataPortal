@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Extensions.Options;
 using NodaTime;
 using Npgsql;
@@ -16,7 +15,7 @@ public interface IAppointmentChangeService
     Task CancelAsync(Guid patientUserId, Guid appointmentId, CancellationToken cancellationToken);
 }
 
-public sealed class AppointmentChangeService(IOptions<DatabaseOptions> databaseOptions, IClock clock) : IAppointmentChangeService
+public sealed class AppointmentChangeService(IOptions<DatabaseOptions> databaseOptions, IOptions<ReminderOptions> reminderOptions, IClock clock) : IAppointmentChangeService
 {
     public Task<AppointmentChangeConfirmation> RescheduleAsync(Guid patientUserId, Guid appointmentId, RescheduleAppointmentRequest request, CancellationToken cancellationToken) =>
         ChangeAsync(patientUserId, appointmentId, request.SlotId, cancellationToken);
@@ -58,7 +57,8 @@ public sealed class AppointmentChangeService(IOptions<DatabaseOptions> databaseO
         await ExecuteAsync(connection, transaction, "UPDATE slots SET status = 'open' WHERE id = $1 AND provider_id = $2 AND status = 'booked'", cancellationToken, appointment.SlotId, appointment.ProviderId);
         await ExecuteAsync(connection, transaction, "UPDATE appointments SET slot_id = $1, start_at = $2, schedule_version = $3, updated_at = $4 WHERE id = $5", cancellationToken, newSlotId, newStartAt.Value, newVersion, now, appointment.Id);
         await SupersedePendingRemindersAsync(connection, transaction, appointment.Id, appointment.ScheduleVersion, now, cancellationToken);
-        await InsertReminderAsync(connection, transaction, appointment.Id, newVersion, newStartAt.Value, cancellationToken);
+        if (ReminderSchedule.IsDueBeforeStart(newStartAt.Value, now, reminderOptions.Value))
+            await ReminderSchedule.InsertAsync(connection, transaction, appointment.Id, newVersion, newStartAt.Value, appointment.ReminderRecipientEmail, reminderOptions.Value, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new(appointment.Id, newSlotId, newStartAt.Value, newVersion, "confirmed");
     }
@@ -80,11 +80,11 @@ public sealed class AppointmentChangeService(IOptions<DatabaseOptions> databaseO
 
     private static async Task<AppointmentRow> FindOwnedConfirmedAppointmentAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid patientUserId, Guid appointmentId, CancellationToken cancellationToken)
     {
-        await using var command = new NpgsqlCommand("SELECT id, slot_id, provider_id, start_at, schedule_version FROM appointments WHERE id = $1 AND patient_user_id = $2 AND status = 'confirmed' FOR UPDATE", connection, transaction);
+        await using var command = new NpgsqlCommand("SELECT id, slot_id, provider_id, start_at, schedule_version, reminder_recipient_email FROM appointments WHERE id = $1 AND patient_user_id = $2 AND status = 'confirmed' FOR UPDATE", connection, transaction);
         command.Parameters.AddWithValue(appointmentId); command.Parameters.AddWithValue(patientUserId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken)) throw new DomainException("appointment_not_found", "The appointment was not found.", StatusCodes.Status404NotFound);
-        return new(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), ReadUtc(reader.GetValue(3)), reader.GetInt32(4));
+        return new(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), ReadUtc(reader.GetValue(3)), reader.GetInt32(4), reader.IsDBNull(5) ? throw new InvalidOperationException("The appointment has no reminder recipient.") : reader.GetString(5));
     }
 
     private static async Task<Guid?> FindSlotProviderAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid slotId, CancellationToken cancellationToken)
@@ -106,10 +106,7 @@ public sealed class AppointmentChangeService(IOptions<DatabaseOptions> databaseO
     }
 
     private static Task SupersedePendingRemindersAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid appointmentId, int version, DateTimeOffset now, CancellationToken cancellationToken) =>
-        ExecuteAsync(connection, transaction, "UPDATE email_outbox SET status = 'superseded', updated_at = $1 WHERE appointment_id = $2 AND schedule_version = $3 AND kind = 'reminder' AND status = 'pending'", cancellationToken, now, appointmentId, version);
-
-    private static Task InsertReminderAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid appointmentId, int scheduleVersion, DateTimeOffset startsAt, CancellationToken cancellationToken) =>
-        ExecuteAsync(connection, transaction, "INSERT INTO email_outbox (id, appointment_id, schedule_version, interval, kind, payload, due_at, status, idempotency_key) VALUES ($1, $2, $3, '24h', 'reminder', CAST($4 AS jsonb), $5 - INTERVAL '24 hours', 'pending', $6)", cancellationToken, Guid.NewGuid(), appointmentId, scheduleVersion, JsonSerializer.Serialize(new { appointmentId, scheduleVersion, interval = "24h" }), startsAt, $"appointment/{appointmentId}/{scheduleVersion}/24h");
+        ExecuteAsync(connection, transaction, "UPDATE email_outbox SET status = 'superseded', updated_at = $1 WHERE appointment_id = $2 AND schedule_version = $3 AND kind = 'reminder' AND status IN ('pending', 'claimed')", cancellationToken, now, appointmentId, version);
 
     private static async Task ExecuteAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string sql, CancellationToken cancellationToken, params object[] parameters)
     {
@@ -125,5 +122,5 @@ public sealed class AppointmentChangeService(IOptions<DatabaseOptions> databaseO
         _ => throw new InvalidOperationException("Expected a timestamp with time zone.")
     };
 
-    private sealed record AppointmentRow(Guid Id, Guid SlotId, Guid ProviderId, DateTimeOffset StartsAt, int ScheduleVersion);
+    private sealed record AppointmentRow(Guid Id, Guid SlotId, Guid ProviderId, DateTimeOffset StartsAt, int ScheduleVersion, string ReminderRecipientEmail);
 }

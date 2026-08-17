@@ -55,7 +55,8 @@ public sealed class EmailOutboxWorker(
                 updated_at = @now
             FROM next_message
             WHERE outbox.id = next_message.id
-            RETURNING outbox.id, outbox.kind, outbox.payload::text, outbox.idempotency_key, outbox.attempts;
+            RETURNING outbox.id, outbox.kind, outbox.appointment_id, outbox.schedule_version,
+                      outbox.payload::text, outbox.idempotency_key, outbox.attempts;
             """, connection);
         command.Parameters.AddWithValue("now", now.ToDateTimeOffset());
         command.Parameters.AddWithValue("lease_expires_at", (now + Duration.FromMinutes(outboxOptions.Value.LeaseMinutes)).ToDateTimeOffset());
@@ -64,13 +65,22 @@ public sealed class EmailOutboxWorker(
         return new ClaimedOutboxMessage(
             reader.GetGuid(0),
             reader.GetString(1),
-            reader.GetString(2),
-            reader.GetString(3),
-            reader.GetInt32(4));
+            reader.IsDBNull(2) ? null : reader.GetGuid(2),
+            reader.IsDBNull(3) ? null : reader.GetInt32(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetInt32(6));
     }
 
     private async Task DeliverAsync(ClaimedOutboxMessage message, Instant now, EmailOutboxRunResult result, CancellationToken cancellationToken)
     {
+        if (message.Kind == "reminder" && await SupersedeIfStaleReminderAsync(message, now, cancellationToken))
+        {
+            result.Superseded++;
+            logger.LogInformation("Outbox reminder superseded before delivery {OutboxId} {Attempt}", message.Id, message.Attempts);
+            return;
+        }
+
         EmailMessage email;
         try
         {
@@ -100,6 +110,32 @@ public sealed class EmailOutboxWorker(
         await MarkFailedAsync(message, now, failure.Code, failure.IsRetryable, cancellationToken);
         result.Failed++;
         logger.LogWarning("Outbox email attempt failed {OutboxId} {Kind} {Attempt} {ErrorCode} {Retryable}", message.Id, message.Kind, message.Attempts, failure.Code, failure.IsRetryable);
+    }
+
+    private async Task<bool> SupersedeIfStaleReminderAsync(ClaimedOutboxMessage message, Instant now, CancellationToken cancellationToken)
+    {
+        if (message.AppointmentId is null || message.ScheduleVersion is null) return true;
+
+        await using var connection = new NpgsqlConnection(databaseOptions.Value.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("""
+            UPDATE email_outbox AS outbox
+            SET status = 'superseded', lease_expires_at = NULL, updated_at = @now
+            WHERE outbox.id = @id
+              AND outbox.status = 'claimed'
+              AND outbox.kind = 'reminder'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM appointments
+                  WHERE id = @appointment_id
+                    AND status = 'confirmed'
+                    AND schedule_version = @schedule_version);
+            """, connection);
+        command.Parameters.AddWithValue("id", message.Id);
+        command.Parameters.AddWithValue("now", now.ToDateTimeOffset());
+        command.Parameters.AddWithValue("appointment_id", message.AppointmentId.Value);
+        command.Parameters.AddWithValue("schedule_version", message.ScheduleVersion.Value);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     private async Task MarkSentAsync(ClaimedOutboxMessage message, string providerMessageId, Instant now, CancellationToken cancellationToken)
@@ -140,7 +176,7 @@ public sealed class EmailOutboxWorker(
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    private sealed record ClaimedOutboxMessage(Guid Id, string Kind, string Payload, string IdempotencyKey, int Attempts);
+    private sealed record ClaimedOutboxMessage(Guid Id, string Kind, Guid? AppointmentId, int? ScheduleVersion, string Payload, string IdempotencyKey, int Attempts);
     private sealed record EmailOutboxPayload(string To, string Subject, string Html, string? Text);
 }
 
@@ -149,4 +185,5 @@ public sealed class EmailOutboxRunResult
     public int Claimed { get; internal set; }
     public int Sent { get; internal set; }
     public int Failed { get; internal set; }
+    public int Superseded { get; internal set; }
 }

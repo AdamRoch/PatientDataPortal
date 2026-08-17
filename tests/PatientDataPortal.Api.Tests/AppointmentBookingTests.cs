@@ -37,6 +37,36 @@ public sealed class AppointmentBookingTests
         Assert.Equal(1, await fixture.CountRemindersAsync(first.Id));
         Assert.Equal(1, await fixture.CountAppointmentAuditsAsync(first.Id));
         Assert.Equal("booked", await fixture.SlotStatusAsync(slot));
+        var reminder = await fixture.ReminderAsync(first.Id);
+        Assert.Equal(DateTimeOffset.Parse("2030-01-01T09:00:00Z"), reminder.DueAt);
+        Assert.Equal("24h", reminder.Interval);
+        Assert.Contains("Open the patient portal", reminder.Payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("2030-01-02", reminder.Payload, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task BookingInsideTheLeadIntervalDoesNotCreateAReminder()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var slot = await fixture.SeedOpenSlotAsync("2030-01-01T12:00:00Z");
+
+        await fixture.Service.BookAsync(fixture.PatientId, new(slot, fixture.ServiceId, "too-soon"), default);
+
+        Assert.Equal(0, await fixture.CountRemindersForSlotAsync(slot));
+    }
+
+    [Fact]
+    public async Task DevelopmentLeadOverrideDeterminesTheIntervalAndDueTime()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync(leadMinutes: 5);
+        if (!fixture.HasDatabase) return;
+        var slot = await fixture.SeedOpenSlotAsync("2030-01-01T00:10:00Z");
+        var appointment = await fixture.Service.BookAsync(fixture.PatientId, new(slot, fixture.ServiceId, "demo-reminder"), default);
+
+        var reminder = await fixture.ReminderAsync(appointment.Id);
+        Assert.Equal(DateTimeOffset.Parse("2030-01-01T00:05:00Z"), reminder.DueAt);
+        Assert.Equal("5m", reminder.Interval);
     }
 
     [Fact]
@@ -308,14 +338,15 @@ public sealed class AppointmentBookingTests
         public AppointmentBookingService Service { get; }
         public AppointmentChangeService Changes { get; }
         public AppointmentLifecycleService Lifecycle { get; }
-        private AppointmentFixture(string connectionString)
+        private AppointmentFixture(string connectionString, int leadMinutes = ReminderOptions.DefaultLeadMinutes)
         {
             _connectionString = connectionString;
-            Service = new AppointmentBookingService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
-            Changes = new AppointmentChangeService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
+            var reminderOptions = Options.Create(new ReminderOptions { PortalUrl = "https://portal.example.test", LeadMinutes = leadMinutes });
+            Service = new AppointmentBookingService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), reminderOptions, new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
+            Changes = new AppointmentChangeService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), reminderOptions, new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
             Lifecycle = new AppointmentLifecycleService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
         }
-        public static Task<AppointmentFixture> CreateAsync() => Task.FromResult(new AppointmentFixture(Environment.GetEnvironmentVariable("DATABASE_URL") ?? string.Empty));
+        public static Task<AppointmentFixture> CreateAsync(int leadMinutes = ReminderOptions.DefaultLeadMinutes) => Task.FromResult(new AppointmentFixture(Environment.GetEnvironmentVariable("DATABASE_URL") ?? string.Empty, leadMinutes));
         public async Task<Guid> SeedSlotAsync()
         {
             var slot = Guid.NewGuid(); var startsAt = DateTimeOffset.Parse("2030-01-02T09:00:00Z");
@@ -354,6 +385,12 @@ public sealed class AppointmentBookingTests
             command.Parameters.AddWithValue("id", appointmentId); await using var reader = await command.ExecuteReaderAsync(); var results = new List<(int, string)>();
             while (await reader.ReadAsync()) results.Add((reader.GetInt32(0), reader.GetString(1)));
             return results.ToArray();
+        }
+        public async Task<(DateTimeOffset DueAt, string Interval, string Payload)> ReminderAsync(Guid appointmentId)
+        {
+            await using var connection = new NpgsqlConnection(_connectionString); await connection.OpenAsync(); await using var command = new NpgsqlCommand("SELECT due_at, interval, payload::text FROM email_outbox WHERE appointment_id = @id", connection);
+            command.Parameters.AddWithValue("id", appointmentId); await using var reader = await command.ExecuteReaderAsync(); await reader.ReadAsync();
+            return (reader.GetFieldValue<DateTimeOffset>(0), reader.GetString(1), reader.GetString(2));
         }
         private async Task<T> ScalarAsync<T>(string sql, params (string Name, object Value)[] parameters)
         {
