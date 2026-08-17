@@ -14,7 +14,7 @@ namespace PatientDataPortal.Api.Tests;
 public sealed class PublicShareEndpointTests
 {
     [Fact]
-    public async Task RevocationImmediatelyDeniesReloadAndContentAfterAnEarlierDelivery()
+    public async Task RevokedTokenServesUnavailableExperienceWithoutContentAndAuditsDenials()
     {
         await using var factory = new PublicShareApplicationFactory();
         using var client = factory.CreateClient();
@@ -32,22 +32,53 @@ public sealed class PublicShareEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, reloadedPage.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, backNavigationContent.StatusCode);
         Assert.DoesNotContain("file bytes", await backNavigationContent.Content.ReadAsStringAsync(), StringComparison.Ordinal);
-        Assert.Single(factory.Audit.Events);
+        Assert.Equal(3, factory.Audit.Events.Count);
+        Assert.All(factory.Audit.Events.Skip(1), audit => AssertDenied(audit));
     }
 
     [Fact]
-    public async Task ExpiredOrUnknownLinksReturnUnavailableWithoutBytes()
+    public async Task ExpiredTokenServesUnavailableExperienceWithoutContentAndAuditsDenial()
     {
         await using var factory = new PublicShareApplicationFactory { Shares = { IsActive = false } };
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync("/api/public/share/expired/content");
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.DoesNotContain("file bytes", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
-        Assert.True(response.Headers.CacheControl!.Private);
-        Assert.True(response.Headers.CacheControl.NoStore);
-        Assert.Equal("no-referrer", response.Headers.GetValues("Referrer-Policy").Single());
+        await AssertUnavailableAsync(response, factory.Audit);
+    }
+
+    [Theory]
+    [InlineData("foreign-valid-looking-token")]
+    [InlineData("not-a-token!!!")]
+    public async Task ForeignOrMalformedTokenServesUnavailableExperienceWithoutContentAndAuditsDenial(string token)
+    {
+        await using var factory = new PublicShareApplicationFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync($"/api/public/share/{Uri.EscapeDataString(token)}/content");
+
+        await AssertUnavailableAsync(response, factory.Audit);
+    }
+
+    [Fact]
+    public async Task CacheRevalidationAfterExpiryNeverReturnsPreviouslyDeliveredContent()
+    {
+        await using var factory = new PublicShareApplicationFactory();
+        using var client = factory.CreateClient();
+
+        var first = await client.GetAsync("/api/public/share/live/content");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.True(first.Headers.CacheControl!.NoStore);
+
+        factory.Shares.IsActive = false;
+        var revalidated = await client.GetAsync("/api/public/share/live/content", HttpCompletionOption.ResponseHeadersRead);
+
+        Assert.Equal(HttpStatusCode.NotFound, revalidated.StatusCode);
+        Assert.DoesNotContain("file bytes", await revalidated.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.True(revalidated.Headers.CacheControl!.NoStore);
+        Assert.Equal(2, factory.Audit.Events.Count);
+        AssertDenied(factory.Audit.Events[1]);
+        Assert.Equal(1, factory.Storage.OpenCount);
     }
 
     [Fact]
@@ -94,6 +125,28 @@ public sealed class PublicShareEndpointTests
 
         Assert.All(responses, response => Assert.NotEqual(HttpStatusCode.OK, response.StatusCode));
         Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.TooManyRequests);
+        Assert.Equal(11, factory.Audit.Events.Count);
+        Assert.All(factory.Audit.Events, AssertDenied);
+        Assert.Equal(0, factory.Storage.OpenCount);
+    }
+
+    private static async Task AssertUnavailableAsync(HttpResponseMessage response, FakeAudit audit)
+    {
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.DoesNotContain("file bytes", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.True(response.Headers.CacheControl!.Private);
+        Assert.True(response.Headers.CacheControl.NoStore);
+        Assert.Equal("no-referrer", response.Headers.GetValues("Referrer-Policy").Single());
+        var denial = Assert.Single(audit.Events);
+        AssertDenied(denial);
+    }
+
+    private static void AssertDenied(AuditEvent audit)
+    {
+        Assert.Equal("shared_content_denied", audit.Action);
+        Assert.Equal("share_link", audit.TargetType);
+        Assert.Equal("denied", audit.Result);
+        Assert.DoesNotContain("token", audit.TargetReference, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class PublicShareApplicationFactory : WebApplicationFactory<Program>
@@ -118,7 +171,12 @@ public sealed class PublicShareEndpointTests
 
     private sealed class FakeStorage : IPublicShareStorage
     {
-        public Task<PublicShareContent?> OpenReadAsync(PublicShare share, CancellationToken cancellationToken) => Task.FromResult<PublicShareContent?>(new PublicShareContent(new MemoryStream(Encoding.UTF8.GetBytes("file bytes")), "application/pdf", "shared-file.pdf"));
+        public int OpenCount { get; private set; }
+        public Task<PublicShareContent?> OpenReadAsync(PublicShare share, CancellationToken cancellationToken)
+        {
+            OpenCount++;
+            return Task.FromResult<PublicShareContent?>(new PublicShareContent(new MemoryStream(Encoding.UTF8.GetBytes("file bytes")), "application/pdf", "shared-file.pdf"));
+        }
     }
 
     private sealed class FakeAudit : IAuditWriter
