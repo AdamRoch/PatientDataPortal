@@ -1,0 +1,15 @@
+.card { background: var(--surface); border: 1px solid #d9e6e8; border-radius: 1rem; box-shadow: 0 1.5rem 3rem rgba(22,49,56,.09); padding: 1.75rem; }
+.tabs { border-bottom: 1px solid #d9e6e8; display: flex; gap: 1.25rem; margin: 0 -1.75rem 1.75rem; padding: 0 1.75rem; }
+.tab, .activeTab { background: none; border: 0; color: var(--muted); cursor: pointer; font-weight: 700; padding: 0 0 .8rem; }
+.activeTab { border-bottom: 3px solid #176b71; color: #163138; margin-bottom: -1px; }
+.card h2 { font-size: 1.6rem; letter-spacing: -.03em; }
+.helper { color: var(--muted); line-height: 1.5; margin: .6rem 0 1.5rem; }
+.form { display: grid; gap: .6rem; }
+.form label { font-size: .9rem; font-weight: 700; margin-top: .45rem; }
+.form input { border: 1px solid #aabdc1; border-radius: .45rem; min-height: 2.8rem; padding: .6rem .7rem; }
+.form input:focus { border-color: #176b71; outline: 3px solid #c8eced; }
+.submit { background: #176b71; border: 0; border-radius: .45rem; color: white; cursor: pointer; font-weight: 700; margin-top: .9rem; min-height: 2.8rem; }
+.submit:disabled { cursor: wait; opacity: .65; }
+.error, .success { border-radius: .4rem; font-size: .9rem; line-height: 1.45; margin-top: .6rem; padding: .75rem; }
+.error { background: #fff0f0; color: #8a1f1f; }
+.success { background: #e9f7f0; color: #155738; }
