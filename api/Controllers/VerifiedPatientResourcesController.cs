@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using PatientDataPortal.Api.Security;
 using PatientDataPortal.Api.Studies;
+using PatientDataPortal.Api.Reports;
 
 namespace PatientDataPortal.Api.Controllers;
 
@@ -16,9 +17,29 @@ public sealed class VerifiedPatientResourcesController : ControllerBase
         [FromServices] IStudyRepository studies,
         CancellationToken cancellationToken) => Ok(await studies.ListCompletedForPatientAsync(UserId(), cancellationToken));
 
+    [HttpGet("api/reports")]
+    public async Task<ActionResult<IReadOnlyList<SignedReportListItem>>> Reports(
+        [FromServices] IReportRepository reports,
+        CancellationToken cancellationToken) => Ok(await reports.ListSignedForPatientAsync(UserId(), cancellationToken));
+
+    [HttpGet("api/reports/{reportId:guid}/view")]
+    public async Task<IActionResult> ViewReport(
+        Guid reportId,
+        [FromServices] IReportRepository reports,
+        [FromServices] IReportStorage storage,
+        [FromServices] IAuditWriter auditWriter,
+        CancellationToken cancellationToken)
+    {
+        var report = await reports.FindSignedForPatientAsync(reportId, UserId(), cancellationToken);
+        if (report is null) return NotFound();
+
+        var url = await storage.CreateSignedReadUrlAsync(report.StoragePath, cancellationToken);
+        await auditWriter.WriteAllowedAsync(new AuditEvent(UserId().ToString(), "patient", "report_view", "report", report.Id.ToString(), "allowed"), cancellationToken);
+        return Ok(new { url = url.ToString() });
+    }
+
     [HttpGet("api/images")] public IActionResult Images() => NotFound();
     [HttpGet("api/cine")] public IActionResult Cine() => NotFound();
-    [HttpGet("api/reports")] public IActionResult Reports() => NotFound();
 
     private Guid UserId() => Guid.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
 }

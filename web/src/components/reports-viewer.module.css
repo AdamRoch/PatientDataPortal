@@ -1,0 +1,12 @@
+.section { display: grid; gap: 1rem; max-width: 60rem; }
+.list { display: grid; gap: .75rem; list-style: none; margin: 0; padding: 0; }
+.list li { align-items: center; background: var(--surface); border: 1px solid #d9e6e8; border-radius: .75rem; display: flex; gap: 1rem; justify-content: space-between; padding: 1rem; }
+.list strong, .list time { display: block; }
+.list time { color: var(--muted); font-size: .9rem; margin-top: .25rem; }
+.list button { background: #176b71; border: 0; border-radius: .45rem; color: white; cursor: pointer; flex: 0 0 auto; font-weight: 700; min-height: 2.75rem; padding: .55rem .85rem; }
+.list button:disabled { cursor: wait; opacity: .65; }
+.viewer { background: #fff; border: 1px solid #d9e6e8; border-radius: .75rem; height: min(75vh, 58rem); min-height: 28rem; overflow: hidden; width: 100%; }
+.viewer iframe { border: 0; height: 100%; width: 100%; }
+.loading { color: var(--muted); left: 50%; margin: 0; position: absolute; top: 50%; transform: translate(-50%, -50%); }
+.viewer { position: relative; }
+@media (max-width: 480px) { .list li { align-items: stretch; flex-direction: column; } .list button { width: 100%; } .viewer { border-radius: .4rem; height: 70vh; min-height: 22rem; } }
