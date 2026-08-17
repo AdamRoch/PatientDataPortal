@@ -37,6 +37,13 @@ if (args.Contains("--describe-imaging-seed", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--seed-demo-accounts", StringComparer.Ordinal))
+{
+    var summary = await new DemoAccountSeedGenerator().SeedAsync();
+    Console.WriteLine(summary.ToLogLine());
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
