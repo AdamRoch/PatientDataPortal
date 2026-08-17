@@ -73,6 +73,75 @@ public sealed class AppointmentBookingTests
     }
 
     [Fact]
+    public async Task RescheduleAtomicallyMovesTheAppointmentAndReplacesItsReminder()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var oldSlot = await fixture.SeedSlotAsync();
+        var newSlot = await fixture.SeedOpenSlotAsync("2030-01-03T09:00:00Z");
+        var appointment = await fixture.Service.BookAsync(fixture.PatientId, new(oldSlot, fixture.ServiceId, "move-me"), default);
+
+        var changed = await fixture.Changes.RescheduleAsync(fixture.PatientId, appointment.Id, new(newSlot), default);
+
+        Assert.Equal(newSlot, changed.SlotId);
+        Assert.Equal(2, changed.ScheduleVersion);
+        Assert.Equal("open", await fixture.SlotStatusAsync(oldSlot));
+        Assert.Equal("booked", await fixture.SlotStatusAsync(newSlot));
+        Assert.Equal((newSlot, 2, "confirmed"), await fixture.AppointmentStateAsync(appointment.Id));
+        Assert.Equal(new[] { (1, "superseded"), (2, "pending") }, await fixture.ReminderStatesAsync(appointment.Id));
+    }
+
+    [Fact]
+    public async Task RescheduleFailureRollsBackAndKeepsTheOriginalReminderPending()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var oldSlot = await fixture.SeedSlotAsync();
+        var unavailableSlot = await fixture.SeedOpenSlotAsync("2030-01-03T09:00:00Z");
+        var appointment = await fixture.Service.BookAsync(fixture.PatientId, new(oldSlot, fixture.ServiceId, "original"), default);
+        await fixture.Service.BookAsync(Guid.NewGuid(), new(unavailableSlot, fixture.ServiceId, "already-booked"), default);
+
+        var exception = await Assert.ThrowsAsync<PatientDataPortal.Api.Errors.DomainException>(() => fixture.Changes.RescheduleAsync(fixture.PatientId, appointment.Id, new(unavailableSlot), default));
+
+        Assert.Equal("slot_no_longer_available", exception.Code);
+        Assert.Equal("booked", await fixture.SlotStatusAsync(oldSlot));
+        Assert.Equal((oldSlot, 1, "confirmed"), await fixture.AppointmentStateAsync(appointment.Id));
+        Assert.Equal(new[] { (1, "pending") }, await fixture.ReminderStatesAsync(appointment.Id));
+    }
+
+    [Fact]
+    public async Task CancelFreesTheSlotAndSupersedesTheReminderWithoutReplacement()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var slot = await fixture.SeedSlotAsync();
+        var appointment = await fixture.Service.BookAsync(fixture.PatientId, new(slot, fixture.ServiceId, "cancel-me"), default);
+
+        await fixture.Changes.CancelAsync(fixture.PatientId, appointment.Id, default);
+
+        Assert.Equal("open", await fixture.SlotStatusAsync(slot));
+        Assert.Equal((slot, 1, "cancelled"), await fixture.AppointmentStateAsync(appointment.Id));
+        Assert.Equal(new[] { (1, "superseded") }, await fixture.ReminderStatesAsync(appointment.Id));
+    }
+
+    [Fact]
+    public async Task ChangesRequirePatientOwnershipAndTwentyFourHoursNotice()
+    {
+        await using var fixture = await AppointmentFixture.CreateAsync();
+        if (!fixture.HasDatabase) return;
+        var slot = await fixture.SeedSlotAsync();
+        var appointment = await fixture.Service.BookAsync(fixture.PatientId, new(slot, fixture.ServiceId, "owned"), default);
+
+        var ownership = await Assert.ThrowsAsync<PatientDataPortal.Api.Errors.DomainException>(() => fixture.Changes.CancelAsync(Guid.NewGuid(), appointment.Id, default));
+        Assert.Equal("appointment_not_found", ownership.Code);
+        await fixture.SetSlotStartAsync(slot, "2030-01-01T23:59:59Z");
+        await fixture.SetAppointmentStartAsync(appointment.Id, "2030-01-01T23:59:59Z");
+        var notice = await Assert.ThrowsAsync<PatientDataPortal.Api.Errors.DomainException>(() => fixture.Changes.CancelAsync(fixture.PatientId, appointment.Id, default));
+        Assert.Equal("minimum_notice_required", notice.Code);
+        Assert.Equal("booked", await fixture.SlotStatusAsync(slot));
+    }
+
+    [Fact]
     public async Task PatientEndpointReturnsConfirmationAndBoundedTiming()
     {
         await using var factory = new AppointmentApplicationFactory();
@@ -102,8 +171,8 @@ public sealed class AppointmentBookingTests
         public FakeBookings Bookings { get; } = new();
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.ConfigureTestServices(services =>
         {
-            services.RemoveAll<ISupabaseJwtVerifier>(); services.RemoveAll<IUserProfileRoleRepository>(); services.RemoveAll<IAppointmentBookingService>();
-            services.AddSingleton<ISupabaseJwtVerifier>(new FakeVerifier()); services.AddSingleton<IUserProfileRoleRepository>(new FakeRoles()); services.AddSingleton<IAppointmentBookingService>(Bookings);
+            services.RemoveAll<ISupabaseJwtVerifier>(); services.RemoveAll<IUserProfileRoleRepository>(); services.RemoveAll<IAppointmentBookingService>(); services.RemoveAll<IAppointmentChangeService>();
+            services.AddSingleton<ISupabaseJwtVerifier>(new FakeVerifier()); services.AddSingleton<IUserProfileRoleRepository>(new FakeRoles()); services.AddSingleton<IAppointmentBookingService>(Bookings); services.AddSingleton<IAppointmentChangeService>(new FakeChanges());
         });
     }
 
@@ -118,6 +187,11 @@ public sealed class AppointmentBookingTests
             return Task.FromResult(new AppointmentConfirmation(Guid.NewGuid(), request.SlotId, Guid.NewGuid(), request.ServiceId, DateTimeOffset.UtcNow, 1, "confirmed"));
         }
     }
+    private sealed class FakeChanges : IAppointmentChangeService
+    {
+        public Task<AppointmentChangeConfirmation> RescheduleAsync(Guid patientUserId, Guid appointmentId, RescheduleAppointmentRequest request, CancellationToken cancellationToken) => Task.FromResult(new AppointmentChangeConfirmation(appointmentId, request.SlotId, DateTimeOffset.UtcNow, 2, "confirmed"));
+        public Task CancelAsync(Guid patientUserId, Guid appointmentId, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
 
     private sealed class AppointmentFixture : IAsyncDisposable
     {
@@ -127,10 +201,12 @@ public sealed class AppointmentBookingTests
         public Guid ServiceId { get; } = Guid.NewGuid();
         public bool HasDatabase => !string.IsNullOrWhiteSpace(_connectionString);
         public AppointmentBookingService Service { get; }
+        public AppointmentChangeService Changes { get; }
         private AppointmentFixture(string connectionString)
         {
             _connectionString = connectionString;
             Service = new AppointmentBookingService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
+            Changes = new AppointmentChangeService(Options.Create(new DatabaseOptions { ConnectionString = connectionString }), new FakeClock(Instant.FromUtc(2030, 1, 1, 0, 0)));
         }
         public static Task<AppointmentFixture> CreateAsync() => Task.FromResult(new AppointmentFixture(Environment.GetEnvironmentVariable("DATABASE_URL") ?? string.Empty));
         public async Task<Guid> SeedSlotAsync()
@@ -142,8 +218,29 @@ public sealed class AppointmentBookingTests
             await ExecuteAsync("INSERT INTO slots (id, provider_id, start_at, end_at, status) VALUES (@id, @provider, @start, @end, 'open')", ("id", slot), ("provider", ProviderId), ("start", startsAt), ("end", startsAt.AddMinutes(30)));
             return slot;
         }
+        public async Task<Guid> SeedOpenSlotAsync(string startsAt)
+        {
+            var slot = Guid.NewGuid(); var start = DateTimeOffset.Parse(startsAt);
+            await ExecuteAsync("INSERT INTO slots (id, provider_id, start_at, end_at, status) VALUES (@id, @provider, @start, @end, 'open')", ("id", slot), ("provider", ProviderId), ("start", start), ("end", start.AddMinutes(30)));
+            return slot;
+        }
         public Task<int> CountAsync(string table) => ScalarAsync<int>($"SELECT count(*)::int FROM {table}");
         public Task<string> SlotStatusAsync(Guid slot) => ScalarAsync<string>("SELECT status FROM slots WHERE id = @id", ("id", slot));
+        public Task SetSlotStartAsync(Guid slot, string startsAt) => ExecuteAsync("UPDATE slots SET start_at = @start, end_at = @end WHERE id = @id", ("id", slot), ("start", DateTimeOffset.Parse(startsAt)), ("end", DateTimeOffset.Parse(startsAt).AddMinutes(30)));
+        public Task SetAppointmentStartAsync(Guid appointmentId, string startsAt) => ExecuteAsync("UPDATE appointments SET start_at = @start WHERE id = @id", ("id", appointmentId), ("start", DateTimeOffset.Parse(startsAt)));
+        public async Task<(Guid SlotId, int ScheduleVersion, string Status)> AppointmentStateAsync(Guid appointmentId)
+        {
+            await using var connection = new NpgsqlConnection(_connectionString); await connection.OpenAsync(); await using var command = new NpgsqlCommand("SELECT slot_id, schedule_version, status FROM appointments WHERE id = @id", connection);
+            command.Parameters.AddWithValue("id", appointmentId); await using var reader = await command.ExecuteReaderAsync(); await reader.ReadAsync();
+            return (reader.GetGuid(0), reader.GetInt32(1), reader.GetString(2));
+        }
+        public async Task<(int ScheduleVersion, string Status)[]> ReminderStatesAsync(Guid appointmentId)
+        {
+            await using var connection = new NpgsqlConnection(_connectionString); await connection.OpenAsync(); await using var command = new NpgsqlCommand("SELECT schedule_version, status FROM email_outbox WHERE appointment_id = @id ORDER BY schedule_version", connection);
+            command.Parameters.AddWithValue("id", appointmentId); await using var reader = await command.ExecuteReaderAsync(); var results = new List<(int, string)>();
+            while (await reader.ReadAsync()) results.Add((reader.GetInt32(0), reader.GetString(1)));
+            return results.ToArray();
+        }
         private async Task<T> ScalarAsync<T>(string sql, params (string Name, object Value)[] parameters)
         {
             await using var connection = new NpgsqlConnection(_connectionString); await connection.OpenAsync(); await using var command = new NpgsqlCommand(sql, connection);

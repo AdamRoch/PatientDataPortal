@@ -80,7 +80,7 @@ public sealed class AppointmentBookingService(IOptions<DatabaseOptions> database
         command.Parameters.AddWithValue(patientUserId); command.Parameters.AddWithValue(key);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
-            ? new(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetGuid(3), reader.GetFieldValue<DateTimeOffset>(4), reader.GetInt32(5), reader.GetString(6))
+            ? new(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetGuid(3), ReadUtc(reader.GetValue(4)), reader.GetInt32(5), reader.GetString(6))
             : null;
     }
 
@@ -104,7 +104,7 @@ public sealed class AppointmentBookingService(IOptions<DatabaseOptions> database
         await using var command = new NpgsqlCommand("UPDATE slots SET status = 'booked' WHERE id = $1 AND provider_id = $2 AND status = 'open' RETURNING start_at", connection, transaction);
         command.Parameters.AddWithValue(slotId); command.Parameters.AddWithValue(providerId);
         var result = await command.ExecuteScalarAsync(cancellationToken);
-        return result is DateTimeOffset startsAt ? startsAt : null;
+        return result is null ? null : ReadUtc(result);
     }
 
     private static Task InsertAppointmentAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid appointmentId, CreateAppointmentRequest request, Guid patientUserId, Guid providerId, DateTimeOffset startsAt, DateTimeOffset now, CancellationToken cancellationToken) =>
@@ -125,4 +125,11 @@ public sealed class AppointmentBookingService(IOptions<DatabaseOptions> database
         foreach (var parameter in parameters) command.Parameters.AddWithValue(parameter);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
+
+    private static DateTimeOffset ReadUtc(object value) => value switch
+    {
+        DateTimeOffset offset => offset,
+        DateTime dateTime => new DateTimeOffset(DateTime.SpecifyKind(dateTime, DateTimeKind.Utc)),
+        _ => throw new InvalidOperationException("Expected a timestamp with time zone.")
+    };
 }
