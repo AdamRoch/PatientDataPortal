@@ -27,6 +27,7 @@ export function CinePlayer({ clipId }: { clipId: string }) {
   const [fps, setFps] = useState(12);
   const [error, setError] = useState<string | null>(null);
   const [portrait, setPortrait] = useState(true);
+  const [loadingRemainingFrames, setLoadingRemainingFrames] = useState(false);
   const preloadQueue = useRef<FrameUrl[]>([]);
   const preloading = useRef(0);
   const preloaded = useRef(new Set<number>());
@@ -85,9 +86,26 @@ export function CinePlayer({ clipId }: { clipId: string }) {
       if (!active) return;
       setManifest(access.manifest);
       setFps(playbackFps(access.manifest.defaultFps));
-      for (let start = 0; start < access.manifest.frames.length; start += FRAME_URL_BATCH_SIZE) {
-        await requestFrameUrls(start, Math.min(FRAME_URL_BATCH_SIZE, access.manifest.frames.length - start));
-      }
+      if (access.manifest.frames.length === 0) return;
+
+      // The first frame establishes useful visual feedback before the potentially slow
+      // remainder of a large clip starts downloading.
+      await requestFrameUrls(0, 1);
+      if (!active) return;
+
+      setLoadingRemainingFrames(true);
+      void (async () => {
+        try {
+          for (let start = 1; start < access.manifest.frames.length; start += FRAME_URL_BATCH_SIZE) {
+            await requestFrameUrls(start, Math.min(FRAME_URL_BATCH_SIZE, access.manifest.frames.length - start));
+            if (!active) return;
+          }
+        } catch {
+          if (active) setError("We could not load this cine clip. Please try again later.");
+        } finally {
+          if (active) setLoadingRemainingFrames(false);
+        }
+      })();
     };
     void load().catch(() => { if (active) setError("We could not load this cine clip. Please try again later."); });
     return () => { active = false; };
@@ -114,6 +132,7 @@ export function CinePlayer({ clipId }: { clipId: string }) {
   const currentUrl = frameUrls[currentFrame];
   const isCurrentFrameLoaded = loadedFrames.has(currentFrame);
   const isCurrentFrameUnavailable = failedFrames.has(currentFrame);
+  const readyFrameCount = loadedFrames.size + failedFrames.size;
   const step = (direction: number) => setCurrentFrame(frame => Math.max(0, Math.min(frameCount - 1, frame + direction)));
 
   return <section className={styles.player} aria-label="Cine player" data-orientation={portrait ? "portrait" : "landscape"}>
@@ -139,5 +158,12 @@ export function CinePlayer({ clipId }: { clipId: string }) {
         </select>
       </label>
     </div>
+    <p className={styles.loading} role="status" aria-live="polite">
+      {loadingRemainingFrames
+        ? `Loading remaining frames: ${readyFrameCount} of ${frameCount} ready.`
+        : readyFrameCount < frameCount
+          ? `Loading frame ${currentFrame + 1} of ${frameCount}…`
+          : `All ${frameCount} frames are ready.`}
+    </p>
   </section>;
 }
