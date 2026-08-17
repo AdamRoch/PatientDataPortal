@@ -37,6 +37,14 @@ if (args.Contains("--seed-imaging", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--seed-benchmark", StringComparer.Ordinal))
+{
+    var imaging = await new ImagingSeedGenerator().SeedAsync();
+    var schedule = await new BenchmarkScheduleSeedGenerator().SeedAsync();
+    Console.WriteLine($"benchmark-seed imaging=({imaging.ToLogLine()}) schedule=({schedule.ToLogLine()})");
+    return;
+}
+
 if (args.Contains("--describe-imaging-seed", StringComparer.Ordinal))
 {
     Console.WriteLine(ImagingSeedGenerator.DescribePlan().ToLogLine());

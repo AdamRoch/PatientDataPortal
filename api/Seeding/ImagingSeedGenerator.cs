@@ -56,7 +56,15 @@ public sealed class ImagingSeedGenerator
         foreach (var asset in plan.ReportAssets)
             await UploadAsync(http, ReportsBucket, asset, cancellationToken);
 
-        return plan.ToSummary();
+        var verifiedPatients = await CountAsync(connection, "patient_records", plan.Patients.Select(patient => patient.Id), cancellationToken);
+        var verifiedStudies = await CountAsync(connection, "studies", plan.Studies.Select(study => study.Id), cancellationToken);
+        var verifiedImages = await CountAsync(connection, "images", plan.Images.Select(image => image.Id), cancellationToken);
+        var verifiedClips = await CountAsync(connection, "cine_clips", plan.Clips.Select(clip => clip.Id), cancellationToken);
+        var verifiedReports = await CountAsync(connection, "reports", plan.Reports.Select(report => report.Id), cancellationToken);
+        var summary = plan.ToSummary() with { VerifiedPatients = verifiedPatients, VerifiedStudies = verifiedStudies, VerifiedImages = verifiedImages, VerifiedCineClips = verifiedClips, VerifiedReports = verifiedReports };
+        if (verifiedPatients != summary.Patients || verifiedStudies != summary.TotalStudies || verifiedImages != summary.Images || verifiedClips != summary.CineClips || verifiedReports != summary.TotalReports)
+            throw new InvalidOperationException("Imaging seed verification failed.");
+        return summary;
     }
 
     private static async Task UpsertPatientAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, SeedPatient patient, CancellationToken cancellationToken)
@@ -119,6 +127,13 @@ public sealed class ImagingSeedGenerator
         request.Headers.Add("x-upsert", "true");
         using var response = await http.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
+    }
+
+    private static async Task<int> CountAsync(NpgsqlConnection connection, string table, IEnumerable<Guid> ids, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand($"SELECT count(*) FROM {table} WHERE id = ANY(@ids)", connection);
+        command.Parameters.AddWithValue("ids", ids.ToArray());
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
     }
 
     private static string RequiredEnvironment(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
@@ -278,7 +293,9 @@ public sealed class ImagingSeedGenerator
 
 public sealed record SeedAsset(string Path, string ContentType, byte[] Bytes);
 
-public sealed record ImagingSeedSummary(int Patients, int CompletedStudies, int ScheduledStudies, int CancelledStudies, int Images, int CineClips, int HundredFrameClips, int SignedReports, int PreliminaryReports, int CineClipsWithMissingFrames, int StorageObjects, long StorageBytes, long StorageBudgetBytes)
+public sealed record ImagingSeedSummary(int Patients, int CompletedStudies, int ScheduledStudies, int CancelledStudies, int Images, int CineClips, int HundredFrameClips, int SignedReports, int PreliminaryReports, int CineClipsWithMissingFrames, int StorageObjects, long StorageBytes, long StorageBudgetBytes, int VerifiedPatients = 0, int VerifiedStudies = 0, int VerifiedImages = 0, int VerifiedCineClips = 0, int VerifiedReports = 0)
 {
-    public string ToLogLine() => string.Create(CultureInfo.InvariantCulture, $"imaging-seed patients={Patients} completed_studies={CompletedStudies} scheduled_studies={ScheduledStudies} cancelled_studies={CancelledStudies} images={Images} cine_clips={CineClips} hundred_frame_clips={HundredFrameClips} signed_reports={SignedReports} preliminary_reports={PreliminaryReports} cine_clips_with_missing_frames={CineClipsWithMissingFrames} storage_objects={StorageObjects} storage_bytes={StorageBytes} storage_budget_bytes={StorageBudgetBytes}");
+    public int TotalStudies => CompletedStudies + ScheduledStudies + CancelledStudies;
+    public int TotalReports => SignedReports + PreliminaryReports;
+    public string ToLogLine() => string.Create(CultureInfo.InvariantCulture, $"imaging-seed patients={Patients} completed_studies={CompletedStudies} scheduled_studies={ScheduledStudies} cancelled_studies={CancelledStudies} images={Images} cine_clips={CineClips} hundred_frame_clips={HundredFrameClips} signed_reports={SignedReports} preliminary_reports={PreliminaryReports} cine_clips_with_missing_frames={CineClipsWithMissingFrames} storage_objects={StorageObjects} storage_bytes={StorageBytes} storage_budget_bytes={StorageBudgetBytes} verified_patients={VerifiedPatients} verified_studies={VerifiedStudies} verified_images={VerifiedImages} verified_cine_clips={VerifiedCineClips} verified_reports={VerifiedReports}");
 }
