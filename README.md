@@ -84,21 +84,27 @@ negative constraint and least-privilege checks through that role. For Supabase p
 the runner derives the pooler-decorated login from the URI parser; no credential is printed.
 Do not use the migration credential at runtime.
 
-Seed the synthetic imaging dataset after applying the schema:
+Seed the complete synthetic benchmark dataset after applying the schema:
 
 ```sh
-dotnet run --project api -- --seed-imaging
+dotnet run --project api -- --seed-benchmark
 ```
 
 The generator needs `DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_KEY`. It creates or
 uses the private `study-assets` and `reports` buckets, then deterministically upserts 50 synthetic patient
 records, completed studies, scheduled/cancelled studies, images, thumbnails, cine frames, and signed plus
-preliminary synthetic PDF reports. The PDFs are explicitly non-clinical demo fixtures.
-It prints the generated counts and byte total, and refuses a plan at or above the 1 GB storage
-budget. Re-running it overwrites the same deterministic object paths and upserts the same IDs;
-it does not create additional seed rows or objects. These fixtures are synthetic only.
+preliminary synthetic PDF reports. It also creates 10 synthetic benchmark providers, each with 1,600 open
+half-hour slots across a fixed 100-business-day window, for 16,000 slots total. The provider rows do not
+create login accounts; the later demo-account command links its provider login to the first seeded provider.
+The PDFs are explicitly non-clinical demo fixtures.
 
-After imaging is seeded, create the deliberately pre-confirmed demo logins with a local
+The command logs the imaging storage plan and verified imaging/provider/slot database counts. It refuses an imaging plan at
+or above the 1 GB storage budget. Re-running it uses the same IDs and storage paths, so it does not add
+seed rows or objects. Run it only against the dedicated demo or benchmark environment, never an environment
+containing real patient or appointment data. These fixtures are synthetic only; this command seeds a dataset
+and does not make a capacity or performance claim.
+
+After benchmark data is seeded, create the deliberately pre-confirmed demo logins with a local
 `DEMO_SEED_PASSWORD` (at least 12 characters):
 
 ```sh
