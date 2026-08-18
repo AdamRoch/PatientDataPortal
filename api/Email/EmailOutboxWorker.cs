@@ -6,12 +6,17 @@ using PatientDataPortal.Api.Configuration;
 
 namespace PatientDataPortal.Api.Email;
 
+public interface IEmailOutboxProcessor
+{
+    Task<EmailOutboxRunResult> ProcessAsync(CancellationToken cancellationToken);
+}
+
 public sealed class EmailOutboxWorker(
     IOptions<DatabaseOptions> databaseOptions,
     IOptions<OutboxOptions> outboxOptions,
     IEmailSender emailSender,
     IClock clock,
-    ILogger<EmailOutboxWorker> logger)
+    ILogger<EmailOutboxWorker> logger) : IEmailOutboxProcessor
 {
     public async Task<EmailOutboxRunResult> ProcessAsync(CancellationToken cancellationToken)
     {

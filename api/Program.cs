@@ -106,6 +106,8 @@ builder.Services.Configure<EmailOptions>(options =>
 builder.Services.Configure<OutboxOptions>(options =>
 {
     options.JobSecret = builder.Configuration["OUTBOX_JOB_SECRET"] ?? string.Empty;
+    if (bool.TryParse(builder.Configuration["OUTBOX_BACKGROUND_ENABLED"], out var backgroundEnabled)) options.BackgroundProcessingEnabled = backgroundEnabled;
+    if (int.TryParse(builder.Configuration["OUTBOX_POLL_SECONDS"], out var pollSeconds) && pollSeconds > 0) options.PollSeconds = pollSeconds;
     if (int.TryParse(builder.Configuration["OUTBOX_BATCH_SIZE"], out var batchSize)) options.BatchSize = batchSize;
     if (int.TryParse(builder.Configuration["OUTBOX_MAX_ATTEMPTS"], out var maximumAttempts)) options.MaximumAttempts = maximumAttempts;
     if (int.TryParse(builder.Configuration["OUTBOX_LEASE_MINUTES"], out var leaseMinutes)) options.LeaseMinutes = leaseMinutes;
@@ -156,7 +158,8 @@ builder.Services
 builder.Services.AddAuthorization(options => options.AddPolicy(RequireVerifiedPatientAttribute.PolicyName, policy => policy.AddRequirements(new VerifiedPatientRequirement())));
 builder.Services.AddScoped<HealthService>();
 builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
-builder.Services.AddScoped<EmailOutboxWorker>();
+builder.Services.AddScoped<IEmailOutboxProcessor, EmailOutboxWorker>();
+builder.Services.AddHostedService<EmailOutboxBackgroundService>();
 builder.Services.AddScoped<IEmailOutboxStatusRepository, EmailOutboxStatusRepository>();
 builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 builder.Services.AddSingleton<IClock>(SystemClock.Instance);
