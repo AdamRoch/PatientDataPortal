@@ -44,7 +44,7 @@ regenerate after any edit with `./split-tickets.sh` (never hand-edit `tickets/*.
 ### E0-T5 Health endpoint
 - **Depends on:** E0-T1
 - **Scope:** `GET /health` reporting app, database, and storage reachability (each with status + latency).
-- **Acceptance:** reachable unauthenticated; reports degraded (not 500) when a dependency is down; response contains no PHI or secrets.
+- **Acceptance:** reachable unauthenticated; returns 200 only when every dependency is healthy and 503 with the same degraded status body otherwise; response contains no PHI or secrets.
 
 ### E0-T6 Structured logging baseline
 - **Depends on:** E0-T1
@@ -53,7 +53,7 @@ regenerate after any edit with `./split-tickets.sh` (never hand-edit `tickets/*.
 
 ### E0-T7 Deploy skeletons + uptime probe
 - **Depends on:** E0-T5, E0-T2
-- **Scope:** Web → Vercel; API → **Railway (paid Pro plan — no sleep, native .NET build; AD8/ADR 0007)**; external monitoring probing `/health` every 5–10 min (uptime evidence, and — since `/health` touches the DB — keeps the Supabase free-tier project from pausing for inactivity); README discloses the hosting plans honestly (API host does not sleep on the paid plan; Supabase/Vercel free-tier behaviors named). Human-provided accounts, URLs, and CLI logins per `INFRA-SETUP.md`.
+- **Scope:** Web → Vercel; API → **Railway (paid Pro plan — no sleep, reproducible build from the pinned multi-stage Dockerfile; AD8/ADR 0007)**; external monitoring probing `/health` every 5–10 min (uptime evidence, and — since `/health` touches the DB — keeps the Supabase free-tier project from pausing for inactivity); README discloses the hosting plans honestly (API host does not sleep on the paid plan; Supabase/Vercel free-tier behaviors named). Human-provided accounts, URLs, and CLI logins per `INFRA-SETUP.md`.
 - **Acceptance:** public URLs for both apps; probe log/history exists; `/health` reachable publicly; README's hosting-plan disclosure present.
 
 ### E0-T8 Resend wrapper
@@ -186,7 +186,7 @@ regenerate after any edit with `./split-tickets.sh` (never hand-edit `tickets/*.
 
 ### E4-T2 Reports list + viewer (signed-only)
 - **Depends on:** E4-T1, E1-T4
-- **Scope:** `GET /api/reports` and `GET /api/reports/{id}` — verified patient, own, `status='signed'` only; in-browser render via signed URL (embed) with correct formatting.
+- **Scope:** `GET /api/reports` and `GET /api/reports/{id}` — verified patient, own, `status='signed'` only; open the signed PDF URL in the top-level browser context so Supabase's frame restrictions do not block presentation.
 - **Acceptance:** preliminary reports never appear in any API response (tested); viewer renders correctly at phone width; views audited.
 
 ### E4-T3 Report sharing

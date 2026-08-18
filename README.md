@@ -201,7 +201,7 @@ The retention/deletion behavior is defined by [ADR 0006](ADR/0006-audit-and-dele
 
 ## Hosting and service limits
 
-The planned deployment uses Vercel's free tier for the web app, Railway Pro for the API, Supabase's free tier for Postgres/Auth/Storage, and Resend's free tier for email. Railway's paid plan does not sleep, but that is not proof of availability, redundancy, or failover. Vercel can have cold paths; Supabase can pause after approximately seven days of inactivity and has roughly 1 GB storage and 5 GB/month egress; Resend allows 100 emails/day and 3,000/month. A health probe is reachability evidence, not a resilience guarantee. Report local, external-contract, benchmark, and deployed results separately.
+The planned deployment uses Vercel's free tier for the web app, Railway Pro for the API, Supabase's free tier for Postgres/Auth/Storage, and Resend's free tier for email. Railway builds the API from the repository's pinned multi-stage Dockerfile. Its paid plan does not sleep, but that is not proof of availability, redundancy, or failover. Vercel can have cold paths; Supabase can pause after approximately seven days of inactivity and has roughly 1 GB storage and 5 GB/month egress; Resend allows 100 emails/day and 3,000/month. `/health` returns 200 only when the API, database, and Storage are healthy; otherwise it returns 503 with the dependency status body. A successful health probe is readiness evidence, not a resilience guarantee. Report local, external-contract, benchmark, and deployed results separately.
 
 ## Security hygiene sweep
 
