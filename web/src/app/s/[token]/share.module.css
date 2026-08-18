@@ -6,5 +6,7 @@
 .image, .document { display: block; width: 100%; margin: 1.5rem 0; border: 1px solid #d7e0ee; border-radius: .5rem; background: #fff; }
 .image { max-height: 32rem; object-fit: contain; }
 .document { height: min(65vh, 42rem); }
+.actions { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
 .download { display: inline-block; padding: .75rem 1rem; border-radius: .5rem; background: #123f77; color: #fff; font-weight: 700; text-decoration: none; }
-.download:focus-visible { outline: 3px solid #f0a500; outline-offset: 3px; }
+.home { color: #176e82; font-weight: 700; text-underline-offset: .2em; }
+.download:focus-visible, .home:focus-visible { border-radius: .2rem; outline: 3px solid #f0a500; outline-offset: 3px; }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import styles from "./share.module.css";
 
 export const metadata: Metadata = {
@@ -30,7 +31,10 @@ export default async function PublicSharePage({ params }: SharePageProps) {
         <h1 id="share-title">Your shared medical file</h1>
         <p>This link is private. Download the file only on a device you trust.</p>
         {share.resourceType === "image" ? <img /* eslint-disable-line @next/next/no-img-element -- public bytes stay on the no-store API path */ className={styles.image} src={viewerUrl} alt="Shared medical image" /> : <iframe className={styles.document} src={viewerUrl} title="Shared medical report" />}
-        <a className={styles.download} href={contentUrl} download>Download file</a>
+        <div className={styles.actions}>
+          <a className={styles.download} href={contentUrl} download>Download file</a>
+          <Link className={styles.home} href="/">Patient Data Portal home</Link>
+        </div>
       </section>
     </main>
   );
@@ -43,6 +47,7 @@ function Unavailable() {
         <p className={styles.eyebrow}>Shared file</p>
         <h1 id="unavailable-title">This shared file is no longer available</h1>
         <p>The link may have expired or been revoked. Please contact the person who shared it with you.</p>
+        <Link className={styles.home} href="/">Patient Data Portal home</Link>
       </section>
     </main>
   );
