@@ -16,9 +16,9 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
             context.Response.StatusCode = exception.StatusCode;
             await context.Response.WriteAsJsonAsync(new { error = exception.Code, requestId = context.TraceIdentifier });
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            logger.LogError("Unhandled request failure");
+            logger.LogError(exception, "Unhandled request failure");
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
             await context.Response.WriteAsJsonAsync(new { error = "internal_error", requestId = context.TraceIdentifier });
         }
