@@ -33,7 +33,7 @@ public sealed class ImagingSeedGeneratorTests
         var requests = new List<(HttpMethod Method, string Path)>();
         using var http = new HttpClient(new StubHttpMessageHandler(request =>
         {
-            requests.Add((request.Method, request.RequestUri!.ToString()));
+            requests.Add((request.Method, request.RequestUri!.PathAndQuery.TrimStart('/')));
             return requests.Count switch
             {
                 1 => JsonResponse(HttpStatusCode.BadRequest, """{"statusCode":"409","error":"Duplicate","message":"The resource already exists","code":"BucketAlreadyExists"}"""),
