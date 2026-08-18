@@ -34,7 +34,7 @@ public sealed class EmailOutboxWorker(
 
     private async Task<ClaimedOutboxMessage?> ClaimDueMessageAsync(Instant now, CancellationToken cancellationToken)
     {
-        await using var connection = new NpgsqlConnection(databaseOptions.Value.ConnectionString);
+        await using var connection = new NpgsqlConnection(DatabaseConnectionString.Normalize(databaseOptions.Value.ConnectionString));
         await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand("""
             WITH next_message AS (
@@ -116,7 +116,7 @@ public sealed class EmailOutboxWorker(
     {
         if (message.AppointmentId is null || message.ScheduleVersion is null) return true;
 
-        await using var connection = new NpgsqlConnection(databaseOptions.Value.ConnectionString);
+        await using var connection = new NpgsqlConnection(DatabaseConnectionString.Normalize(databaseOptions.Value.ConnectionString));
         await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand("""
             UPDATE email_outbox AS outbox
@@ -161,7 +161,7 @@ public sealed class EmailOutboxWorker(
 
     private async Task ExecuteUpdateAsync(string sql, Guid id, Instant now, CancellationToken cancellationToken, string? providerMessageId = null, string? status = null, Instant? dueAt = null)
     {
-        await using var connection = new NpgsqlConnection(databaseOptions.Value.ConnectionString);
+        await using var connection = new NpgsqlConnection(DatabaseConnectionString.Normalize(databaseOptions.Value.ConnectionString));
         await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("id", id);
