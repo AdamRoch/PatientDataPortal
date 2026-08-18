@@ -42,6 +42,19 @@ public sealed class IdentityEndpointAuthorizationTests
     }
 
     [Fact]
+    public async Task AccountWithoutProfileCanAttemptIdentityClaim()
+    {
+        await using var factory = new IdentityApplicationFactory(true, false, role: null);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
+
+        var response = await client.PostAsJsonAsync("/api/identity/verify", new { patientRef = "PTDP-1", dob = "1980-01-02" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True(factory.Verifier.LastEmailVerified);
+    }
+
+    [Fact]
     public async Task UnverifiedPatientsAreForbiddenFromEveryProtectedResourceRoot()
     {
         await using var factory = new IdentityApplicationFactory(true, false); using var client = factory.CreateClient(); client.DefaultRequestHeaders.Authorization = new("Bearer", "valid");
@@ -67,17 +80,17 @@ public sealed class IdentityEndpointAuthorizationTests
         Assert.True(verifiedStatus.GetProperty("verified").GetBoolean());
     }
 
-    private sealed class IdentityApplicationFactory(bool emailVerified, bool verifiedPatient) : WebApplicationFactory<Program>
+    private sealed class IdentityApplicationFactory(bool emailVerified, bool verifiedPatient, AppRole? role = AppRole.Patient) : WebApplicationFactory<Program>
     {
         public FakeIdentityService Verifier { get; } = new(verifiedPatient);
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<ISupabaseJwtVerifier>(); services.RemoveAll<IUserProfileRoleRepository>(); services.RemoveAll<IIdentityVerificationService>(); services.RemoveAll<IAuditWriter>();
-            services.AddSingleton<ISupabaseJwtVerifier>(new FakeJwtVerifier(emailVerified)); services.AddSingleton<IUserProfileRoleRepository>(new PatientProfile()); services.AddSingleton<IIdentityVerificationService>(Verifier); services.AddSingleton<IAuditWriter>(new NoopAuditWriter());
+            services.AddSingleton<ISupabaseJwtVerifier>(new FakeJwtVerifier(emailVerified)); services.AddSingleton<IUserProfileRoleRepository>(new PatientProfile(role)); services.AddSingleton<IIdentityVerificationService>(Verifier); services.AddSingleton<IAuditWriter>(new NoopAuditWriter());
         });
     }
     private sealed class FakeJwtVerifier(bool emailVerified) : ISupabaseJwtVerifier { public Task<AuthenticatedUser?> VerifyAsync(string token, CancellationToken cancellationToken) => Task.FromResult(token == "valid" ? new AuthenticatedUser(Guid.Parse("7494cb41-69d6-4a86-8cec-a8d82da7b957"), emailVerified) : null); }
-    private sealed class PatientProfile : IUserProfileRoleRepository { public Task<AppRole?> GetRoleAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult<AppRole?>(AppRole.Patient); }
+    private sealed class PatientProfile(AppRole? role) : IUserProfileRoleRepository { public Task<AppRole?> GetRoleAsync(Guid userId, CancellationToken cancellationToken) => Task.FromResult(role); }
     public sealed class NoopAuditWriter : IAuditWriter { public Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => Task.CompletedTask; public Task WriteDeniedAsync(AuditEvent auditEvent, CancellationToken cancellationToken) => Task.CompletedTask; }
     public sealed class FakeIdentityService(bool verifiedPatient) : IIdentityVerificationService
     {
