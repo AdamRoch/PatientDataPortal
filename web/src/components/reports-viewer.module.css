@@ -10,8 +10,4 @@
 .shareForm label { font-weight: 700; }
 .shareForm input { border: 1px solid #9cbcc0; border-radius: .45rem; min-height: 2.75rem; padding: .55rem .7rem; }
 .shareForm p { flex-basis: 100%; margin: 0; }
-.viewer { background: #fff; border: 1px solid #d9e6e8; border-radius: .75rem; height: min(75vh, 58rem); min-height: 28rem; overflow: hidden; width: 100%; }
-.viewer iframe { border: 0; height: 100%; width: 100%; }
-.loading { color: var(--muted); left: 50%; margin: 0; position: absolute; top: 50%; transform: translate(-50%, -50%); }
-.viewer { position: relative; }
-@media (max-width: 480px) { .list li { align-items: stretch; flex-direction: column; } .list button { width: 100%; } .actions { width: 100%; } .shareForm { align-items: stretch; flex-direction: column; } .shareForm input { width: 100%; } .viewer { border-radius: .4rem; height: 70vh; min-height: 22rem; } }
+@media (max-width: 480px) { .list li { align-items: stretch; flex-direction: column; } .list button { width: 100%; } .actions { width: 100%; } .shareForm { align-items: stretch; flex-direction: column; } .shareForm input { width: 100%; } }

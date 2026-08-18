@@ -1,8 +1,12 @@
+.git/
+.github/
+.lavish/
 **/bin/
 **/obj/
+**/node_modules/
 .DS_Store
 .env
 .env.*
-!.env.example
-.local/
 SECRETS.local.env
+web/
+tests/

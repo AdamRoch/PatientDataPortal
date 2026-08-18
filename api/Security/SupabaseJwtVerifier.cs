@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using PatientDataPortal.Api.Configuration;
 
@@ -31,5 +32,8 @@ public sealed class SupabaseJwtVerifier(HttpClient client, IOptions<SupabaseOpti
             : null;
     }
 
-    private sealed record SupabaseUser(string? Id, DateTimeOffset? EmailConfirmedAt, string? Email);
+    private sealed record SupabaseUser(
+        [property: JsonPropertyName("id")] string? Id,
+        [property: JsonPropertyName("email_confirmed_at")] DateTimeOffset? EmailConfirmedAt,
+        [property: JsonPropertyName("email")] string? Email);
 }

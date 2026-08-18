@@ -5,14 +5,11 @@ import { getSupabaseBrowserClient } from "@/lib/auth/client";
 import styles from "./reports-viewer.module.css";
 
 type SignedReport = { id: string; signedAt: string; studyDescription: string };
-type ViewState = { id: string; url: string } | null;
 
 export function ReportsViewer() {
   const [reports, setReports] = useState<SignedReport[] | null>(null);
-  const [view, setView] = useState<ViewState>(null);
   const [error, setError] = useState<"list" | "view" | null>(null);
   const [loadingReportId, setLoadingReportId] = useState<string | null>(null);
-  const [pdfLoading, setPdfLoading] = useState(false);
   const [sharingReportId, setSharingReportId] = useState<string | null>(null);
   const [recipientEmail, setRecipientEmail] = useState("");
   const [shareState, setShareState] = useState<"idle" | "sending" | "sent" | "error">("idle");
@@ -22,11 +19,9 @@ export function ReportsViewer() {
   async function openReport(reportId: string) {
     setError(null);
     setLoadingReportId(reportId);
-    setPdfLoading(false);
     try {
       const url = await requestReportUrl(reportId);
-      setPdfLoading(true);
-      setView({ id: reportId, url });
+      window.location.assign(url);
     } catch {
       setError("view");
     } finally {
@@ -64,7 +59,7 @@ export function ReportsViewer() {
           <time dateTime={report.signedAt}>Signed {new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(new Date(report.signedAt))}</time>
         </div>
         <div className={styles.actions}>
-          <button aria-controls="report-viewer" disabled={loadingReportId === report.id} onClick={() => void openReport(report.id)} type="button">
+          <button disabled={loadingReportId === report.id} onClick={() => void openReport(report.id)} type="button">
             {loadingReportId === report.id ? "Opening…" : "View PDF"}
           </button>
           <button aria-expanded={sharingReportId === report.id} onClick={() => { setSharingReportId(sharingReportId === report.id ? null : report.id); setShareState("idle"); }} type="button">Share report</button>
@@ -79,10 +74,6 @@ export function ReportsViewer() {
       </li>)}
     </ul>
     {error === "view" && <p role="alert">We could not open that report. Please try again later.</p>}
-    {view && <div className={styles.viewer} id="report-viewer" aria-busy={pdfLoading}>
-      {pdfLoading && <p className={styles.loading} role="status">Loading your report…</p>}
-      <iframe key={view.url} onError={() => { setPdfLoading(false); setError("view"); }} onLoad={() => setPdfLoading(false)} src={view.url} title="Signed report PDF" />
-    </div>}
   </section>;
 }
 

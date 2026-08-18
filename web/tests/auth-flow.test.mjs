@@ -124,7 +124,7 @@ test("identity verification keeps care navigation behind verified patient state"
   assert.match(styles, /\.form button \{ width: 100%; \}/);
 });
 
-test("reports expose signed-only metadata and a phone-width PDF viewer", async () => {
+test("reports expose signed-only metadata and open PDFs outside a blocked storage iframe", async () => {
   const listRoute = await source("app/api/patient/reports/route.ts");
   const viewRoute = await source("app/api/patient/reports/[reportId]/view/route.ts");
   const shareRoute = await source("app/api/patient/reports/[reportId]/share/route.ts");
@@ -140,8 +140,8 @@ test("reports expose signed-only metadata and a phone-width PDF viewer", async (
   assert.match(shareRoute, /cache: "no-store"/);
   assert.match(viewer, /Loading your signed reports/);
   assert.match(viewer, /No signed reports are available yet/);
-  assert.match(viewer, /onLoad=\{\(\) => setPdfLoading\(false\)\}/);
-  assert.match(viewer, /onError=\{\(\) => \{ setPdfLoading\(false\); setError\("view"\); \}\}/);
+  assert.match(viewer, /window\.location\.assign\(url\)/);
+  assert.doesNotMatch(viewer, /<iframe/);
   assert.match(viewer, /We could not open that report/);
   assert.match(viewer, /\/api\/patient\/reports\/\$\{encodeURIComponent\(reportId\)\}\/share/);
   assert.match(viewer, /Share report/);

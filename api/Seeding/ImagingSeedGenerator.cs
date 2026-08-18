@@ -103,18 +103,35 @@ public sealed class ImagingSeedGenerator
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task EnsurePrivateBucketAsync(HttpClient http, string bucket, CancellationToken cancellationToken)
+    internal static async Task EnsurePrivateBucketAsync(HttpClient http, string bucket, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "storage/v1/bucket") { Content = JsonContent.Create(new { id = bucket, name = bucket, @public = false }) };
         using var response = await http.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.Conflict)
-            throw new HttpRequestException($"Could not create private {bucket} bucket: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
+        {
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.StatusCode != System.Net.HttpStatusCode.BadRequest || !IsBucketAlreadyExists(responseBody))
+                throw new HttpRequestException($"Could not create private {bucket} bucket: {(int)response.StatusCode} {responseBody}");
+        }
 
         using var bucketResponse = await http.GetAsync($"storage/v1/bucket/{bucket}", cancellationToken);
         bucketResponse.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await bucketResponse.Content.ReadAsStreamAsync(cancellationToken));
         if (!document.RootElement.TryGetProperty("public", out var isPublic) || isPublic.ValueKind != JsonValueKind.False)
             throw new InvalidOperationException($"Storage bucket {bucket} must be private before seeding fixtures.");
+    }
+
+    private static bool IsBucketAlreadyExists(string responseBody)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(responseBody);
+            return document.RootElement.TryGetProperty("code", out var code) && code.GetString() == "BucketAlreadyExists";
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static async Task UploadAsync(HttpClient http, string bucket, SeedAsset asset, CancellationToken cancellationToken)
