@@ -105,6 +105,21 @@ test("image sharing authenticates the patient before forwarding an image-only sh
   assert.match(styles, /@media \(max-width: 480px\)/);
 });
 
+test("patient file flows provide a route back to the portal or public home page", async () => {
+  const navigation = await source("components/portal-navigation.tsx");
+  const imaging = await source("app/portal/imaging/page.tsx");
+  const image = await source("app/portal/imaging/[id]/page.tsx");
+  const cine = await source("app/portal/cine/[id]/page.tsx");
+  const reports = await source("app/portal/reports/page.tsx");
+  const publicShare = await source("app/s/[token]/page.tsx");
+
+  assert.match(navigation, /href="\/portal"/);
+  assert.match(navigation, /Back to portal/);
+  for (const page of [imaging, image, cine, reports]) assert.match(page, /<PortalNavigation \/>/);
+  assert.match(publicShare, /Patient Data Portal home/);
+  assert.match(publicShare, /href="\/"/);
+});
+
 test("identity verification keeps care navigation behind verified patient state", async () => {
   const identity = await source("components/identity-verification.tsx");
   const route = await source("app/api/patient/identity/route.ts");

@@ -6,3 +6,5 @@
 !.env.example
 .local/
 SECRETS.local.env
+/as-software-demo-*.mov
+/as-software-demo-*.mp4

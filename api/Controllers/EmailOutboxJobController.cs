@@ -9,7 +9,7 @@ namespace PatientDataPortal.Api.Controllers;
 
 [ApiController]
 [Route("api/jobs/email-outbox")]
-public sealed class EmailOutboxJobController(IOptions<OutboxOptions> options, EmailOutboxWorker worker) : ControllerBase
+public sealed class EmailOutboxJobController(IOptions<OutboxOptions> options, IEmailOutboxProcessor worker) : ControllerBase
 {
     [HttpPost]
     public async Task<ActionResult<EmailOutboxRunResult>> Post(CancellationToken cancellationToken)
