@@ -1,6 +1,7 @@
 .git/
 .github/
 .lavish/
+.local/
 **/bin/
 **/obj/
 **/node_modules/
