@@ -23,6 +23,7 @@ public sealed class IdentityVerificationServiceTests
         Assert.True(result.Succeeded);
         Assert.True(await fixture.Service.IsVerifiedPatientAsync(account, default));
         Assert.Equal(account, await fixture.ClaimedByAsync(record.Id));
+        Assert.Equal("patient", await fixture.RoleAsync(account));
         Assert.Equal(1, await fixture.CountAsync("patient_claim_events", "patient_record_id", record.Id));
         Assert.Equal(1, await fixture.CountTextAsync("audit_log", "target_reference", fixture.ReferenceHmac(record.Reference)));
     }
@@ -48,6 +49,20 @@ public sealed class IdentityVerificationServiceTests
 
         Assert.False((await fixture.Service.VerifyAsync(account, false, new(record.Reference, "1980-01-02"), "198.51.100.4", default)).Succeeded);
         Assert.True((await fixture.Service.VerifyAsync(account, true, new(record.Reference, "1980-01-02"), "198.51.100.4", default)).Succeeded);
+    }
+
+    [Fact]
+    public async Task ExistingNonPatientRoleCannotClaimPatientRecord()
+    {
+        await using var fixture = await IdentityFixture.CreateAsync(); if (!fixture.HasDatabase) return;
+        var record = await fixture.AddPatientAsync(); var account = Guid.NewGuid();
+        await fixture.AddProfileAsync(account, "provider");
+
+        var result = await fixture.Service.VerifyAsync(account, true, new(record.Reference, "1980-01-02"), "198.51.100.44", default);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(await fixture.ClaimedByAsync(record.Id));
+        Assert.Equal("provider", await fixture.RoleAsync(account));
     }
 
     [Fact]
@@ -145,7 +160,9 @@ public sealed class IdentityVerificationServiceTests
             await using var command = new NpgsqlCommand("INSERT INTO patient_records (id, patient_ref, dob, full_name) VALUES (@id, @reference, '1980-01-02', 'Test Patient')", connection);
             command.Parameters.AddWithValue("id", id); command.Parameters.AddWithValue("reference", reference); await command.ExecuteNonQueryAsync(); return (id, reference);
         }
+        public async Task AddProfileAsync(Guid account, string role) { await using var c = new NpgsqlConnection(_connectionString); await c.OpenAsync(); await using var cmd = new NpgsqlCommand("INSERT INTO user_profiles (user_id, role, display_name, tz) VALUES (@account, @role, 'Test User', 'UTC')", c); cmd.Parameters.AddWithValue("account", account); cmd.Parameters.AddWithValue("role", role); await cmd.ExecuteNonQueryAsync(); }
         public async Task<Guid?> ClaimedByAsync(Guid id) { await using var c = new NpgsqlConnection(_connectionString); await c.OpenAsync(); await using var cmd = new NpgsqlCommand("SELECT claimed_by FROM patient_records WHERE id = @id", c); cmd.Parameters.AddWithValue("id", id); return await cmd.ExecuteScalarAsync() is Guid value ? value : null; }
+        public async Task<string?> RoleAsync(Guid account) { await using var c = new NpgsqlConnection(_connectionString); await c.OpenAsync(); await using var cmd = new NpgsqlCommand("SELECT role FROM user_profiles WHERE user_id = @account", c); cmd.Parameters.AddWithValue("account", account); return await cmd.ExecuteScalarAsync() as string; }
         public async Task<int> CountAsync(string table, string column, Guid id) { await using var c = new NpgsqlConnection(_connectionString); await c.OpenAsync(); await using var cmd = new NpgsqlCommand($"SELECT count(*)::int FROM {table} WHERE {column} = @id", c); cmd.Parameters.AddWithValue("id", id.ToString()); if (column == "patient_record_id") cmd.Parameters["id"].Value = id; return (int)(await cmd.ExecuteScalarAsync())!; }
         public async Task<int> CountTextAsync(string table, string column, string value) { await using var c = new NpgsqlConnection(_connectionString); await c.OpenAsync(); await using var cmd = new NpgsqlCommand($"SELECT count(*)::int FROM {table} WHERE {column} = @value", c); cmd.Parameters.AddWithValue("value", value); return (int)(await cmd.ExecuteScalarAsync())!; }
         public async Task<string> LatestAttemptResultAsync(Guid account) { await using var c = new NpgsqlConnection(_connectionString); await c.OpenAsync(); await using var cmd = new NpgsqlCommand("SELECT result FROM verification_attempts WHERE account_id = @account ORDER BY attempted_at DESC LIMIT 1", c); cmd.Parameters.AddWithValue("account", account); return (string)(await cmd.ExecuteScalarAsync())!; }

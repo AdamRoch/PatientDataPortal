@@ -54,6 +54,7 @@ public sealed class IdentityVerificationService(
         var throttled = networkAttempts >= ThrottleThreshold || referenceAttempts >= ThrottleThreshold;
 
         var patient = await FindPatientAsync(connection, transaction, patientReference, cancellationToken);
+        var accountRole = await FindAccountRoleAsync(connection, transaction, accountId, cancellationToken);
         // Always compare fixed-size digests, including when no record exists. Do not replace this
         // dummy path with an early return: it is the unknown-reference timing equalizer.
         var expectedReference = patient?.PatientReference ?? "__dummy_patient_reference__";
@@ -62,13 +63,19 @@ public sealed class IdentityVerificationService(
         var dobMatches = hasDob && CryptographicOperations.FixedTimeEquals(
             SHA256.HashData(Encoding.UTF8.GetBytes(suppliedDob.ToString("yyyy-MM-dd", null))),
             SHA256.HashData(Encoding.UTF8.GetBytes(expectedDob.ToString("yyyy-MM-dd", null))));
-        var canClaim = accountFailures < MaximumFailures && emailVerified && patient is { ClaimedBy: null } && referenceMatches && dobMatches;
+        var canClaim = accountFailures < MaximumFailures
+            && emailVerified
+            && patient is { ClaimedBy: null }
+            && accountRole is null or "patient"
+            && referenceMatches
+            && dobMatches;
 
         if (canClaim)
         {
             var claimed = await ClaimAsync(connection, transaction, patient!.Value.Id, accountId, now, cancellationToken);
             if (claimed)
             {
+                await EnsurePatientProfileAsync(connection, transaction, accountId, patient.Value.FullName, cancellationToken);
                 await RecordAsync(connection, transaction, accountId, networkHmac, referenceHmac, "allowed", now, "allowed", cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new IdentityVerificationResult(true, throttled ? ThrottleDuration : Duration.Zero);
@@ -123,13 +130,28 @@ public sealed class IdentityVerificationService(
         return (int)(await command.ExecuteScalarAsync(cancellationToken))!;
     }
 
-    private static async Task<(Guid Id, string PatientReference, LocalDate Dob, Guid? ClaimedBy)?> FindPatientAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string patientReference, CancellationToken cancellationToken)
+    private static async Task<(Guid Id, string PatientReference, LocalDate Dob, Guid? ClaimedBy, string FullName)?> FindPatientAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string patientReference, CancellationToken cancellationToken)
     {
-        await using var command = new NpgsqlCommand("SELECT id, patient_ref, dob, claimed_by FROM patient_records WHERE patient_ref = @patient_ref", connection, transaction);
+        await using var command = new NpgsqlCommand("SELECT id, patient_ref, dob, claimed_by, full_name FROM patient_records WHERE patient_ref = @patient_ref", connection, transaction);
         command.Parameters.AddWithValue("patient_ref", patientReference);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken)) return null;
-        return (reader.GetGuid(0), reader.GetString(1), LocalDate.FromDateTime(reader.GetDateTime(2)), reader.IsDBNull(3) ? null : reader.GetGuid(3));
+        return (reader.GetGuid(0), reader.GetString(1), LocalDate.FromDateTime(reader.GetDateTime(2)), reader.IsDBNull(3) ? null : reader.GetGuid(3), reader.GetString(4));
+    }
+
+    private static async Task<string?> FindAccountRoleAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid accountId, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand("SELECT role FROM user_profiles WHERE user_id = @account_id", connection, transaction);
+        command.Parameters.AddWithValue("account_id", accountId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
+    }
+
+    private static async Task EnsurePatientProfileAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid accountId, string displayName, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand("INSERT INTO user_profiles (user_id, role, display_name, tz) VALUES (@account_id, 'patient', @display_name, 'UTC') ON CONFLICT (user_id) DO NOTHING", connection, transaction);
+        command.Parameters.AddWithValue("account_id", accountId);
+        command.Parameters.AddWithValue("display_name", displayName);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<bool> ClaimAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid recordId, Guid accountId, Instant now, CancellationToken cancellationToken)

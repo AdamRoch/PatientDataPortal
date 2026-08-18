@@ -1,14 +1,14 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NodaTime;
 using PatientDataPortal.Api.Identity;
-using PatientDataPortal.Api.Security;
 
 namespace PatientDataPortal.Api.Controllers;
 
 [ApiController]
 [Route("api/identity")]
-[RequireRole(AppRole.Patient)]
+[Authorize]
 public sealed class IdentityVerificationController(IIdentityVerificationService identityVerification) : ControllerBase
 {
     [HttpGet("status")]
