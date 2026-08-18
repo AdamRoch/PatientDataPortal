@@ -8,13 +8,14 @@ The assessment permits either C# or Node for the API and requires one reproducib
 
 ## Decision
 
-Use a monorepo containing an ASP.NET Core API, a Next.js TypeScript web app, and shared infrastructure scripts. Deploy the web app to Vercel, the API to Railway on an existing paid Pro plan, and Postgres, Auth, and private Storage to Supabase. The brief names Railway as an allowed platform; the paid plan means the API never sleeps, has no cold-start penalty in benchmarks, and builds .NET natively without a Dockerfile.
+Use a monorepo containing an ASP.NET Core API, a Next.js TypeScript web app, and shared infrastructure scripts. Deploy the web app to Vercel, the API to Railway on an existing paid Pro plan, and Postgres, Auth, and private Storage to Supabase. The brief names Railway as an allowed platform; the paid plan means the API never sleeps. Build the API from the repository's pinned multi-stage Dockerfile so local and Railway builds use the same .NET toolchain and runtime inputs.
 
 External monitoring probes the health endpoint for uptime evidence; the probe also keeps the free-tier Supabase project from pausing for inactivity. The README discloses which components are paid (Railway) and which are free tier (Supabase, Vercel, Resend), and monitoring is not described as proof that the service cannot restart.
 
 ## Consequences
 
 - One checkout owns migrations, seeds, tests, benchmarks, and grader instructions.
+- The pinned Dockerfile, Railway configuration, and Docker ignore rules define the reproducible API build and exclude local secrets and unrelated web/test files from its context.
 - C# transaction and lifecycle code benefits from compiler-checked types and framework conventions.
 - The README must disclose every free-tier limitation that affects evidence.
 - Local and deployed results are reported separately.

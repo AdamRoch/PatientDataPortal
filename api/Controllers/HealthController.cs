@@ -9,6 +9,12 @@ public sealed class HealthController(HealthService healthService) : ControllerBa
 {
     [HttpGet]
     [ProducesResponseType<HealthResponse>(StatusCodes.Status200OK)]
-    public async Task<ActionResult<HealthResponse>> Get(CancellationToken cancellationToken) =>
-        Ok(await healthService.CheckAsync(cancellationToken));
+    [ProducesResponseType<HealthResponse>(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<HealthResponse>> Get(CancellationToken cancellationToken)
+    {
+        var health = await healthService.CheckAsync(cancellationToken);
+        return health.Status == "healthy"
+            ? Ok(health)
+            : StatusCode(StatusCodes.Status503ServiceUnavailable, health);
+    }
 }

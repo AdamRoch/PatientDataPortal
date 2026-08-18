@@ -37,7 +37,7 @@ public sealed class ImageAccessService(
         if (string.IsNullOrWhiteSpace(options.Url) || string.IsNullOrWhiteSpace(options.ServiceKey))
             throw new InvalidOperationException("SUPABASE_URL and SUPABASE_SERVICE_KEY are required for image delivery.");
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"storage/v1/object/sign/{Bucket}/{storagePath}")
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildSignPath(storagePath.StoragePath))
         {
             Content = JsonContent.Create(new { expiresIn = SignedUrlTtlSeconds }),
         };
@@ -76,6 +76,9 @@ public sealed class ImageAccessService(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? new OwnedImage(reader.GetString(0), reader.GetGuid(1)) : null;
     }
+
+    internal static string BuildSignPath(string storagePath) =>
+        $"storage/v1/object/sign/{Bucket}/{storagePath}";
 
     private sealed record OwnedImage(string StoragePath, Guid StudyId);
     private sealed record SignedObject(string SignedUrl);

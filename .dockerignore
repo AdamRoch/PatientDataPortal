@@ -1,0 +1,13 @@
+.git/
+.github/
+.lavish/
+.local/
+**/bin/
+**/obj/
+**/node_modules/
+.DS_Store
+.env
+.env.*
+SECRETS.local.env
+web/
+tests/

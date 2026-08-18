@@ -227,7 +227,7 @@ public sealed class ReportsEndpointTests
             Body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = JsonContent.Create(new { signedURL = "/storage/v1/object/sign/reports/signed.pdf?token=short-lived" }),
+                Content = JsonContent.Create(new { signedURL = "/object/sign/reports/signed.pdf?token=short-lived" }),
             };
         }
     }

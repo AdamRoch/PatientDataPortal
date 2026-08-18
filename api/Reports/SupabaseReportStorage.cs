@@ -28,8 +28,11 @@ public sealed class SupabaseReportStorage(IHttpClientFactory httpClientFactory, 
             throw new InvalidOperationException("Private report storage returned an invalid signed URL.");
 
         var value = signedUrl.GetString()!;
-        return Uri.TryCreate(value, UriKind.Absolute, out var absolute) && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps)
-            ? absolute
-            : new Uri(new Uri(settings.Url.TrimEnd('/') + "/"), value.TrimStart('/'));
+        if (Uri.TryCreate(value, UriKind.Absolute, out var absolute) && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
+            return absolute;
+
+        var relative = value.TrimStart('/');
+        if (!relative.StartsWith("storage/v1/", StringComparison.Ordinal)) relative = "storage/v1/" + relative;
+        return new Uri(new Uri(settings.Url.TrimEnd('/') + "/"), relative);
     }
 }
